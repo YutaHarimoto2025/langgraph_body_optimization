@@ -1,0 +1,31 @@
+[project]
+name = "bodyopt"
+version = "0.1.0"
+description = "2D mass-spring creature optimization with JAX + GA"
+requires-python = ">=3.12"
+dependencies = [
+    "jax[cuda13]>=0.9",
+    "numpy>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pyright>=1.1.400",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "bodyopt"
+module-root = "src"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["regression: integration-scheme comparison runs", "slow: full short GA runs"]

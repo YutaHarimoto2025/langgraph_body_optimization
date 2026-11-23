@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bodyopt｜軌跡ビューア (three.js)</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #1c1e22; color: #ededed; }
+    body { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100vh; overflow: hidden; }
+    #stage { position: relative; min-width: 0; }
+    canvas { display: block; }
+    #panel { background: #232529; border-left: 1px solid #3a3d42; padding: 1rem 1.25rem; overflow-y: auto; }
+    h1 { font-size: 1.05rem; margin: 0 0 .9rem; }
+    h2 { font-size: .9rem; margin: 1.2rem 0 .5rem; color: #c9cdd2; border-bottom: 1px solid #3a3d42; padding-bottom: .3rem; }
+    button { font: inherit; padding: .35rem .8rem; cursor: pointer; color: #ededed; background: #303338; border: 1px solid #565b63; border-radius: .3rem; }
+    button:hover, button:focus-visible { background: #3a3e45; }
+    :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
+    input[type="range"] { width: 100%; accent-color: #85d6bf; }
+    input[type="number"], input[type="file"] { color-scheme: dark; }
+    label { display: block; margin: .45rem 0 .15rem; font-size: .85rem; color: #c9cdd2; }
+    .row { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+    .val { font-family: ui-monospace, monospace; font-size: .85rem; color: #9eceff; }
+    table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .4rem; }
+    th, td { border: 1px solid #3a3d42; padding: .3rem .45rem; text-align: left; }
+    th { background: #2a2d31; font-weight: 600; }
+    .note { font-size: .8rem; color: #a6abb1; }
+    .err { color: #e08d85; }
+    #drop { border: 1px dashed #565b63; border-radius: .4rem; padding: .6rem; text-align: center; font-size: .85rem; color: #a6abb1; margin-top: .3rem; }
+    .badge { display: inline-block; font-size: .75rem; background: #293a36; color: #a3ecd7; border-radius: .3rem; padding: .05rem .4rem; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.186.0/build/three.module.js",
+                   "three/addons/": "https://unpkg.com/three@0.186.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="stage"></div>
+  <aside id="panel" data-persist>
+    <h1>bodyopt 軌跡ビューア <span class="badge">2D sim / 3D view</span></h1>
+
+    <h2>軌跡の読み込み</h2>
+    <div id="drop">resources/runs/&lt;name&gt;/trajectory_*.json をドラッグ&amp;ドロップ、または選択<br>
+      (0.0.0.0:8000 経由ならパス直接入力も可)</div>
+    <div class="row"><input type="file" id="file" accept=".json"></div>
+    <div class="row"><input type="text" id="url" placeholder="trajectory JSON のパス (例: ../resources/runs/first_try/trajectory_gen9_rank0.json)" style="flex:1; background:#303338; border:1px solid #565b63; border-radius:.3rem; color:#ededed; padding:.3rem .5rem"><button id="loadUrl">読込</button></div>
+    <p class="note" id="status">未読み込み</p>
+
+    <h2>再生</h2>
+    <div class="row">
+      <button id="play">▶ 再生</button>
+      <button id="stepB">◀ 1</button>
+      <button id="stepF">1 ▶</button>
+      <button id="reset">⏮ 先頭</button>
+    </div>
+    <label>時刻 <span id="tLabel" class="val">-</span></label>
+    <input type="range" id="slider" min="0" max="0" step="1" value="0">
+    <div class="row"><label style="margin:0">速度 <input type="range" id="speed" min="0.1" max="4" step="0.1" value="1" style="width:8rem"></label><span class="val" id="speedLabel">1.0×</span></div>
+    <div class="row">
+      <label style="margin:0"><input type="checkbox" id="showCom" checked> 重心軌跡</label>
+      <label style="margin:0"><input type="checkbox" id="showContact" checked> 接触点</label>
+    </div>
+
+    <h2>その時刻の状態</h2>
+    <table>
+      <tr><th>重心 x</th><td class="val" id="comX">-</td></tr>
+      <tr><th>重心 y</th><td class="val" id="comY">-</td></tr>
+      <tr><th>接触質点数</th><td class="val" id="nContact">-</td></tr>
+      <tr><th>駆動仕事 (累積)</th><td class="val" id="energy">-</td></tr>
+    </table>
+
+    <h2>個体情報</h2>
+    <table>
+      <tr><th>label</th><td id="pLabel">-</td></tr>
+      <tr><th>フレーム数</th><td id="pFrames">-</td></tr>
+      <tr><th>dt</th><td id="pDt">-</td></tr>
+    </table>
+    <p class="note">ドラッグ=回転、ホイール=ズーム、右ドラッグ=パン。正面図はカメラをリセット (R キー)。</p>
+  </aside>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    // ---------- シーン ----------
+    const stage = document.getElementById("stage");
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    stage.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1c1e22);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 200);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(1.0, 0.4, 0);
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener("resize", resize);
+    function frontView() {
+      camera.position.set(1.0, 0.8, 4.5);
+      controls.target.set(1.0, 0.4, 0);
+      controls.update();
+    }
+    frontView();
+    addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") frontView(); });
+
+    scene.add(new THREE.GridHelper(12, 24, 0x3a3d42, 0x2a2d31)); // y=0 床 (グリッド)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const key = new THREE.DirectionalLight(0xffffff, 1.2);
+    key.position.set(3, 6, 4);
+    scene.add(key);
+
+    const comLine = new THREE.Line(
+      new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x9eceff, transparent: true, opacity: 0.8 })
+    );
+    scene.add(comLine);
+
+    // ---------- 状態 ----------
+    let traj = null, playing = false, frame = 0, lastT = null, acc = 0;
+    const groups = { nodes: [], edges: [], contacts: [] };
+    const el = id => document.getElementById(id);
+    const status = el("status");
+
+    function setStatus(msg, isErr = false) { status.textContent = msg; status.className = isErr ? "err" : "note"; }
+
+    function clearCreature() {
+      for (const g of [...groups.nodes, ...groups.edges, ...groups.contacts]) { scene.remove(g); g.geometry?.dispose?.(); (g.material ?? g.forEach)?.(); }
+      groups.nodes = []; groups.edges = []; groups.contacts = [];
+    }
+
+    function buildCreature(t) {
+      const n = t.pos[0].length, e = t.spring_force[0].length;
+      const nodeGeo = new THREE.SphereGeometry(0.05, 20, 16);
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(nodeGeo, new THREE.MeshStandardMaterial({ color: 0xd8dde3, roughness: 0.4 }));
+        scene.add(m); groups.nodes.push(m);
+      }
+      for (let j = 0; j < e; j++) {
+        const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+        const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x85d6bf, linewidth: 2 }));
+        scene.add(line); groups.edges.push(line);
+      }
+      const cGeo = new THREE.SphereGeometry(0.035, 12, 10);
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(cGeo, new THREE.MeshBasicMaterial({ color: 0xe0b685 }));
+        m.visible = false;
+        scene.add(m); groups.contacts.push(m);
+      }
+      // 重心軌跡
+      const pts = t.pos.map(f => { let x = 0, y = 0; for (const p of f) { x += p[0]; y += p[1]; } return new THREE.Vector3(x / n, y / n, 0); });
+      comLine.geometry.setFromPoints(pts);
+      el("pFrames").textContent = String(t.pos.length);
+      el("pDt").textContent = t.times.length > 1 ? (t.times[1] - t.times[0]).toFixed(4) + " s" : "-";
+      el("slider").max = String(t.pos.length - 1);
+    }
+
+    function setFrame(k) {
+      if (!traj) return;
+      frame = Math.max(0, Math.min(traj.pos.length - 1, k));
+      const f = traj.pos[frame];
+      for (let i = 0; i < f.length; i++) {
+        groups.nodes[i].position.set(f[i][0], f[i][1], 0);
+        const contact = traj.contact_force[frame][i] > 0;
+        groups.contacts[i].position.set(f[i][0], f[i][1], 0.001);
+        groups.contacts[i].visible = el("showContact").checked && contact;
+      }
+      // 辺: 張力で色 (弛み=青 → 張り=赤) と接続位置を更新
+      const maxT = Math.max(...traj.spring_force.map(fr => Math.max(...fr.map(Math.abs))), 1e-9);
+      for (let j = 0; j < groups.edges.length; j++) {
+        const [a, b] = EDGES[j];
+        const p = [traj.pos[frame][a], traj.pos[frame][b]];
+        groups.edges[j].geometry.setFromPoints([new THREE.Vector3(p[0][0], p[0][1], 0), new THREE.Vector3(p[1][0], p[1][1], 0)]);
+        const s = THREE.MathUtils.clamp(traj.spring_force[frame][j] / maxT, -1, 1);
+        const col = s >= 0 ? new THREE.Color().setHSL(0.45 - 0.45 * s, 0.75, 0.55) : new THREE.Color().setHSL(0.6, 0.6, 0.5);
+        groups.edges[j].material.color = col;
+      }
+      // 統計
+      let cx = 0, cy = 0, nc = 0;
+      for (const p of f) { cx += p[0]; cy += p[1]; }
+      cx /= f.length; cy /= f.length;
+      for (const c of traj.contact_force[frame]) if (c > 0) nc++;
+      let energy = 0;
+      for (let k2 = 0; k2 < frame; k2++) energy += traj.drive_power[k2].reduce((a, b) => a + Math.max(0, b), 0);
+      const dt = traj.times.length > 1 ? traj.times[1] - traj.times[0] : 0;
+      el("tLabel").textContent = (traj.times[frame] ?? 0).toFixed(3) + " s";
+      el("comX").textContent = cx.toFixed(4) + " m";
+      el("comY").textContent = cy.toFixed(4) + " m";
+      el("nContact").textContent = String(nc);
+      el("energy").textContent = (energy * dt).toFixed(3) + " J";
+      el("slider").value = String(frame);
+    }
+
+    // EDGES は軌跡 JSON に含まれていないので、bodyopt のラダーと同じ規則で復元
+    function ladderEdges(nCols) {
+      const pairs = [];
+      for (let i = 0; i < nCols - 1; i++) {
+        pairs.push([i, i + 1], [nCols + i, nCols + i + 1], [i, nCols + i], [i, nCols + i + 1]);
+      }
+      pairs.push([nCols - 1, 2 * nCols - 1]);
+      if (nCols > 2) { const mid = Math.floor(nCols / 2); pairs.push([nCols + mid, mid]); }
+      return pairs;
+    }
+    let EDGES = [];
+
+    function loadTraj(t) {
+      clearCreature();
+      traj = t;
+      const nCols = t.pos[0].length / 2;
+      EDGES = ladderEdges(Math.round(nCols));
+      buildCreature(t);
+      el("pLabel").textContent = t.label ?? "-";
+      setStatus(`読み込み完了: ${t.pos.length} フレーム × ${t.pos[0].length} 質点 × ${EDGES.length} 辺`);
+      setFrame(0);
+    }
+
+    async function loadFile(file) {
+      try { loadTraj(JSON.parse(await file.text())); }
+      catch (e) { setStatus("JSON の解析に失敗: " + e.message, true); }
+    }
+    async function loadUrl(url) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+        loadTraj(await r.json());
+      } catch (e) { setStatus("取得失敗: " + e.message, true); }
+    }
+
+    el("file").addEventListener("change", e => e.target.files[0] && loadFile(e.target.files[0]));
+    el("loadUrl").addEventListener("click", () => el("url").value && loadUrl(el("url").value));
+    for (const [id, fn] of [["drop", HTMLDivElement.prototype], ["stage", HTMLDivElement.prototype]]) {
+      const d = el(id);
+      d.addEventListener("dragover", e => e.preventDefault());
+      d.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+    }
+    el("slider").addEventListener("input", e => { playing = false; setFrame(+e.target.value); });
+    el("play").addEventListener("click", () => { playing = !playing; lastT = null; el("play").textContent = playing ? "⏸ 一時停止" : "▶ 再生"; });
+    el("stepF").addEventListener("click", () => { playing = false; setFrame(frame + 1); });
+    el("stepB").addEventListener("click", () => { playing = false; setFrame(frame - 1); });
+    el("reset").addEventListener("click", () => { playing = false; setFrame(0); });
+    el("speed").addEventListener("input", e => { el("speedLabel").textContent = (+e.target.value).toFixed(1) + "×"; });
+    el("showCom").addEventListener("change", e => comLine.visible = e.target.checked);
+    el("showContact").addEventListener("change", () => setFrame(frame));
+
+    function tick(now) {
+      requestAnimationFrame(tick);
+      controls.update();
+      if (playing && traj) {
+        const dt = Math.min((now - (lastT ?? now)) / 1000, 0.1);
+        lastT = now;
+        acc += dt * (+el("speed").value) * 60; // 60 fps 基準
+        while (acc >= 1 && traj) { setFrame(frame + 1); acc -= 1; if (frame >= traj.pos.length - 1) { playing = false; el("play").textContent = "▶ 再生"; break; } }
+      }
+      renderer.render(scene, camera);
+    }
+    resize();
+    requestAnimationFrame(tick);
+  </script>
+  <script src="../docs/open/assets/html-state.js" defer></script>
+</body>
+</html>

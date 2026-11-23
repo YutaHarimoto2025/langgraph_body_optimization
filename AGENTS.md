@@ -8,14 +8,14 @@
 
 ## 現状
 
-アイデア段階であり、実装コード・ビルド設定・テストはまだ存在しない。したがって lint / typecheck / test のコマンドは未確定である。コードを追加する際は、その PR 内で実行方法（`uv` / `pytest` 等）を決め、このファイルの「開発コマンド」を更新する。
+first goal（LangGraph・LLM なしの純粋 GA による周期制御最適化）は実装済みで、動作テストまで通っている。実装仕様の正本は  docs/agents/SPEC.md 、人間向けの要約は  docs/humans/spec.html  にある。実験の報告は  docs/report/ に、実装 review は  docs/reviews/ に蓄積する。docs/open/ は履歴・構想の参考資料である。
 
-### 予定している構成（未確定）
+### 構成
 
-- 身体モデル: 2D mass-spring、`q_i` `m_i`、伸縮エッジ `k_e` `L_e` `a_e` `phi_e` `omega_e`
-- simulator: 独自の簡易質点・バネ実装（重力・地面接触・摩擦）
-- 最適化: GA を基本、LLM 監督・LLM による optimizer 設計を比較
-- オーケストレーション: LangGraph、LangSmith Studio で trace
+- 身体モデル: 2D mass-spring、`q_i` `m_i`、伸縮エッジ `k_e` `L_e` `a_e` `phi_e` `omega_e`（first goal では `a_e` `phi_e` のみ遺伝子）
+- simulator: JAX による独自の質点・バネ実装（重力・地面接触・摩擦）。半陰的オイラー法第一候補、RK4 は比較用
+- 最適化: 純粋 GA（トーナメント・一様交叉・ガウス変異・エリート継承）。LLM 監督・LLM による optimizer 設計は first goal 達成後の比較対象
+- オーケストレーション: LangGraph は未導入（first goal の範囲外。導入時に docs/humans/spec.html の LangGraph 節を更新する）
 
 ## ディレクトリ構成
 
@@ -23,10 +23,25 @@
 docs/
   open/   アイデア・設計メモ（日付 prefix: MMDD_topic_idea.md）
     assets/html-state.js  HTML の入力状態を保存する共通スクリプト
-  agents/ （用途未定）
-.vscode/  エディタ配色設定
+  agents/   実装仕様の正本（agent 向け・md）。現在は SPEC.md
+  humans/   人間向けの仕様と進捗の正本（html）
+  report/   数値実験の報告（html、全項目に言及、新規事項を厚く）
+  reviews/  src 実装の review（aisin の規約 + 計算効率・アルゴリズム・再現性）
+src/        Python パッケージ bodyopt（creature・physics・fitness・ga・io・cli）
+params/     ケース非依存の既定値（default.json）
+resources/  実行ケースごとの生データ（runs/<name>/。上書き・自動削除しない）
+tests/      静的テスト・regression/（積分法回帰）・再現性（slow マーカー）
+viewer/     three.js による軌跡ビューア（事後再生）
+.vscode/    エディタ配色設定
 opencode.jsonc  opencode の権限設定
 ```
+
+## 運用ルール
+
+1. 実装後は「静的テスト → 短い GA run による動的テスト → 合意仕様の docs 正本化」を徹底する。first goal の段階では長い GA を回さない（数分で終わる動作確認まで）。
+2. 新機能や数値実験のたびに  docs/report/ に HTML 報告を書く。項目は「目的・追加機能・実験設定・RAM/VRAM ピークと計算時間・主要結果・分析と先行研究との差異・todo との照合」。全項目を同じ詳細度で書かず、その回で新規なことに詳細を割く。
+3. src の実装 review を定期的に行い  docs/reviews/ に置く（report とは別ファイル）。
+4. GA の計算は世代ループ内で CPU 同期（`int()`・`float()`・`np.asarray`・`print`）を入れない。同期は run の最後の 1 回だけ。
 
 ## ドキュメント規約
 
@@ -59,4 +74,16 @@ opencode.jsonc  opencode の権限設定
 
 ## 開発コマンド
 
-未定（実装開始時に追記する）。
+```bash
+uv sync                                   # 依存の導入 (jax[cuda13]・Python 3.12)
+uv run pyright                            # 型チェック (src + tests)
+uv run pytest -q                          # 静的テスト
+uv run pytest -q -m regression            # 積分法の回帰比較
+uv run pytest -q -m slow                  # 再現性 (短い GA run)
+uv run python -m bodyopt evolve --generations 10 --seed 0 \
+    --record population --out resources/runs/<name>     # GA (headless)
+uv run python -m bodyopt replay --run resources/runs/<name> \
+    --generation 9 --rank 0                              # 保存個体の再ロールアウト
+```
+
+実行の生データは  resources/runs/<name>/  に meta.json (commit hash・seed・全パラメータ) とともに保存され、上書きしない。first goal の段階では数分で終わる run までを検証範囲とする。

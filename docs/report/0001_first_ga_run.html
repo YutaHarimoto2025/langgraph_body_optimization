@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>報告 0001｜first goal の固定 GA run と跳躍解の観察</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #232323; color: #ededed; }
+    body { max-width: 56rem; margin: auto; padding: 1.5rem 1rem 3rem; line-height: 1.75; }
+    h1, h2, h3 { line-height: 1.4; }
+    h2 { margin-top: 2.25rem; border-bottom: 1px solid #888; padding-bottom: .3rem; }
+    a { color: #9eceff; overflow-wrap: anywhere; }
+    :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; background: #363636; padding: 0 .25em; border-radius: 3px; overflow-wrap: anywhere; }
+    pre { background: #303030; border: 1px solid #888; border-radius: .5rem; padding: .75rem 1rem; overflow-x: auto; }
+    pre code { background: transparent; padding: 0; }
+    table { border-collapse: collapse; width: 100%; background: #303030; margin: .8rem 0; }
+    th, td { border: 1px solid #888; padding: .55rem; text-align: left; vertical-align: top; }
+    thead th { background: #3d3d3d; }
+    .lead { border-left: .25rem solid #85d6bf; padding: .75rem 1rem; background: #293a36; }
+    .meta { color: #c9c9c9; }
+    .warn { border-left: .25rem solid #e0b685; padding: .75rem 1rem; background: #3a352d; }
+    figure { margin: 1rem 0; }
+    figcaption { font-size: .85rem; color: #a6abb1; margin-top: .35rem; }
+    .toc { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+    @media print { :root, .lead, .warn, table, thead th, .meta { color-scheme: light; color: #222; background: white; } a { color: #155584; } .toc { display: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>報告 0001｜first goal の固定 GA run と跳躍解の観察</h1>
+    <p class="meta">2026-11-23｜対象: src/bodyopt (初回実装)｜生データ: <a href="../../resources/runs/first_try/">resources/runs/first_try/</a></p>
+    <p class="lead">first goal の動作テストとして、固定 GA (10 世代 × 20 個体 × 5 秒) を GPU 上で 1.25 秒で完走させた。GA の探索は機能しているが、評価が「右向き重心変位のみ」のため、<strong>GA が選んだ最良個体は歩行ではなく大跳躍 (滞空率 64%、重心最高 5.8 m) で距離を稼ぐ解だった</strong>。アイデアメモ §4 が予測した reward hacking の初期兆候であり、次の判断 (跳躍への罰則かエネルギー制約か) を迫る結果を得た。</p>
+    <nav class="toc" aria-label="目次">
+      <a href="#purpose">目的</a>
+      <a href="#feature">追加機能</a>
+      <a href="#setup">実験設定</a>
+      <a href="#resources">資源と時間</a>
+      <a href="#results">主要な結果</a>
+      <a href="#analysis">分析</a>
+      <a href="#todo">todo との照合</a>
+    </nav>
+  </header>
+  <main>
+    <section id="purpose">
+      <h2>その回の目的</h2>
+      <p>LangGraph・LLM を使わない純粋 GA で「2D 質点・バネ身体の周期制御最適化」が end-to-end で動くことを確認する (docs/agents/SPEC.md §1 の first goal)。合わせて、合意した運用サイクル (静的テスト → 短い GA run による動的テスト → docs 正本化 → 報告) を初めて一巡させる。</p>
+    </section>
+
+    <section id="feature">
+      <h2>追加したもの</h2>
+      <ul>
+        <li><strong>JAX シミュレータ</strong> (src/bodyopt/physics.py): 半陰的オイラー法 (第一候補) と RK4 (比較用)。1 個体分の物理を書き、集団は <code>vmap</code>、時間は <code>lax.scan</code>、世代も 1 つの jit + scan に統合。床接触は臨界減衰 (<code>c_contact = 2√(k_c m) ≈ 89.4</code>) に変更した (初値 50 は不足減衰で接触面のトランポリン化を助長するため)。</li>
+        <li><strong>評価関数</strong> (fitness.py): 重心の右向き変位、無効判定 (非有限・めり込み 10 cm 超)、駆動仕事の記録 (筋肉がバネに注入した正の仕事)。<code>--energy-budget</code> オプション (既定は無制限)。</li>
+        <li><strong>固定 GA</strong> (ga.py): トーナメント選択・一様交叉・ガウス変異・エリート継承。世代ループ内の CPU 同期は <code>tree.map(np.asarray)</code> の 1 回だけ。</li>
+        <li><strong>記録・CLI</strong> (io.py・cli.py): <code>evolve</code> (headless) と <code>replay</code> (保存個体の再ロールアウト) を分離。summary / population / full の 3 記録レベルと、git commit hash・seed・全パラメータを含む再現メタデータ。</li>
+        <li><strong>three.js ビューア</strong> (<a href="../../viewer/index.html">viewer/index.html</a>): 軌跡 JSON を読み込み、視点移動できる 3D 表示で再生する (2D 物理を 3D 空間に配置)。張力の色分け・接触点・重心軌跡・駆動仕事の表示つき。</li>
+      </ul>
+    </section>
+
+    <section id="setup">
+      <h2>実験設定</h2>
+      <p>ケースは 1 種 (first_try)。物理・GA の既定値は <a href="../../params/default.json">params/default.json</a> のとおりで、コマンドは次のとおりだった。個体ごとの全データは <a href="../../resources/runs/first_try/population.npz">population.npz</a>、再現メタデータは <a href="../../resources/runs/first_try/meta.json">meta.json</a> を参照。</p>
+      <pre><code>uv run python -m bodyopt evolve --generations 10 --seed 0 \
+    --record full --out resources/runs/first_try</code></pre>
+      <table>
+        <thead><tr><th>項目</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>身体</td><td>6 質点・9 辺の三角補強ラダー、全辺を能動筋肉 (1 kg・100 N/m)</td></tr>
+          <tr><td>遺伝子</td><td>9 振幅 (0〜0.20) + 9 位相 (0〜2π)、周波数は全筋肉共通 1 Hz</td></tr>
+          <tr><td>物理</td><td>半陰的オイラー法 dt = 5 ms、episode 5 秒 (1,000 ステップ)、摩擦 μ = 0.7</td></tr>
+          <tr><td>GA</td><td>集団 20・エリート 2・トーナメント k=3・一様交叉 0.8・変異 0.10/遺伝子</td></tr>
+          <tr><td>評価</td><td>重心の右向き変位のみ (罰則なし・エネルギー無制限)</td></tr>
+          <tr><td>環境</td><td>JAX 0.12.1 + CUDA 13、RTX 4080 (16 GB)、Python 3.12、commit af66fa0</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="resources">
+      <h2>資源の利用量と計算時間</h2>
+      <table>
+        <thead><tr><th>項目</th><th>値</th><th>備考</th></tr></thead>
+        <tbody>
+          <tr><td>evolve の wall time</td><td>1.25 秒</td><td>JIT コンパイル込み・世代ループの CPU 同期は最後の 1 回のみ</td></tr>
+          <tr><td>ホスト側 RSS ピーク</td><td>1.86 GB</td><td>Python + JAX + CUDA ランタイムのベース占有</td></tr>
+          <tr><td>プロセスの GPU メモリ ピーク</td><td>236 MB</td><td>JAX の <code>peak_bytes_in_use</code> (16 GB 中、OOM なし)</td></tr>
+          <tr><td>生データのサイズ</td><td>population.npz 約 58 KB + 軌跡 JSON 約 1 MB</td><td>full 記録 (最良個体の全フレーム)</td></tr>
+          <tr><td>テスト実行時間</td><td>静的 25 件 15.8 秒、回帰+slow 11 件 11.2 秒</td><td>すべて合格</td></tr>
+        </tbody>
+      </table>
+      <p>参考までに <code>nvidia-smi</code> (デバイス全体) の最大は 14.7 GB だが、これは他プロセスを含む値であり、本実験のプロセス分は上表の 236 MB である。この規模では GPU はほとんど占有せず、first goal の目的 (構造と観測の確認) に対して十分な速度だった。</p>
+    </section>
+
+    <section id="results">
+      <h2>主要な結果</h2>
+      <p>GA の探索は機能した。best score は 1.234 m (世代 0) → 1.422 m (世代 5) → 1.778 m (世代 9) と単調に改善し、全世代で valid rate 1.0、同じ seed で再実行すれば距離は rel 1e-5 で一致する (tests/test_reproducibility.py)。単一評価 (1,000 ステップ) はウォームアップ後 0.11 秒/個体、集団評価は <code>vmap</code> で一括した。</p>
+      <figure>
+        <svg viewBox="0 0 560 220" role="img" aria-label="世代ごとの best score の折れ線グラフ。1.234 から 1.778 へ段階的に改善">
+          <rect width="560" height="220" fill="#303030"/>
+          <g stroke="#4a4e52"><line x1="50" y1="20" x2="50" y2="180"/><line x1="50" y1="180" x2="530" y2="180"/>
+          <line x1="50" y1="130" x2="530" y2="130" stroke-dasharray="4 4"/><line x1="50" y1="80" x2="530" y2="80" stroke-dasharray="4 4"/><line x1="50" y1="30" x2="530" y2="30" stroke-dasharray="4 4"/></g>
+          <g fill="#a6abb1" font-size="11"><text x="12" y="184">1.0</text><text x="8" y="134">1.25</text><text x="8" y="84">1.5</text><text x="12" y="34">1.75</text>
+          <text x="70" y="200">0</text><text x="285" y="200">5</text><text x="520" y="200">9 世代</text></g>
+          <polyline fill="none" stroke="#85d6bf" stroke-width="2.5" points="70,133 122,133 174,133 226,133 278,133 330,96 382,96 434,96 486,87 538,24"/>
+          <g fill="#85d6bf"><circle cx="70" cy="133" r="3.5"/><circle cx="330" cy="96" r="3.5"/><circle cx="486" cy="87" r="3.5"/><circle cx="538" cy="24" r="4.5"/></g>
+          <text x="538" y="14" fill="#ededed" font-size="12" text-anchor="end">best 1.778 m</text>
+          <text x="70" y="121" fill="#ededed" font-size="12">世代 0 の最良 1.234 m</text>
+        </svg>
+        <figcaption>best score の推移 (seed 0、10 世代)。エリート継承のため段階的な改善になっている。</figcaption>
+      </figure>
+      <p><strong>ただし最良個体の移動様式は歩行ではない。</strong>最良個体 (世代 9) の軌跡を再生すると、重心は最高 5.79 m まで上昇し、全質点が非接触のフレームは 63% を占める。つまり身体は接地・踏切を繰り返しながら弾道で飛び、5 秒で 1.78 m を稼いでいる (世代 0 の最良も同じ様式、重心最高 4.97 m・滞空 64%)。</p>
+      <p>再生手順 (0.0.0.0:8000 のサーバーで開いた場合):</p>
+      <pre><code>viewer/index.html を開き ../resources/runs/first_try/trajectory_gen9_rank0.json を読み込む
+(または trajectory JSON をウィンドウにドラッグ&amp;ドロップ。R キーで正面図に戻る)</code></pre>
+      <table>
+        <thead><tr><th>指標</th><th>世代 0 の最良</th><th>世代 9 の最良</th></tr></thead>
+        <tbody>
+          <tr><td>重心変位 [m]</td><td>+1.234</td><td>+1.778</td></tr>
+          <tr><td>駆動仕事 [J]</td><td>36.7</td><td>51.2</td></tr>
+          <tr><td>重心の最高到達 [m]</td><td>4.97</td><td>5.79</td></tr>
+          <tr><td>全質点が空中のフレーム率</td><td>64.2%</td><td>63.4%</td></tr>
+          <tr><td>振幅の分布 (平均)</td><td>0.03</td><td>0.13 (最大 0.196)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="analysis">
+      <h2>分析・先行研究との差異</h2>
+      <p><strong>何が起きているか。</strong>筋肉は基準自然長 (0.4〜0.64 m) を最大 20% 縮めるだけで、質量 6 kg・剛性 100 N/m の身体に各辺あたり ~0.8 J を注入できる。全 9 辺が位相を揃えて収縮・弛緩を繰り返すと、床との接触バネ (2,000 N/m) にエネルギーが蓄えられ、踏切として一気に解放される。評価が変位のみで跳ねた高さを罰しないため、GA にとって「弾道で飛ぶ」は最も費用対効果の高い戦略だった。世代 9 の最良が振幅の平均 0.13 (9 辺中 4 辺が 0.18 超) に達しているのはこの圧力の表れである。</p>
+      <p><strong>積分法への影響。</strong>跳躍解は踏切の初速に数値誤差がそのまま飛距離として効くため、scheme 間で距離が 0.1〜0.2 m 変わる (tests/regression/ の実測: GA 最良個体が 5 ms / 2.5 ms / RK4 で 1.49 / 1.37 / 1.34 m)。一方、無駆動個体は 3 手法で完全一致 (0.001 m 未満)、位相が跳躍を引き起こさない個体 (amp ≈ 0.10) は 0.02 m 以内で一致した。つまり scheme 感度は「解の側 (跳躍モード)」に帰属し、第一候補の半陰的オイラー法 (5 ms) は歩行解の評価には十分だが、跳躍解の距離を信用してはいけない。</p>
+      <p><strong>先行研究との差異。</strong>Rojas (2016) は同種の周期制御 GA で「小刻みな歩行」を得ているが、あちらは (a) 変形三角形メッシュの有限要素で接地面が柔らかくトランポリン化しにくい、(b) 筋肉の収縮率が辺長に対して小さい、(c) 探索対象が周波数で振幅上限が小さい、という違いがある。本実験は質点・バネの単純さと振幅 20% の余裕が「踏切・滑空」を最適にした点で、単純モデル特有の failure mode を早期に見せてくれた。アイデアメモ §4 の「身体を吹き飛ばす解」の予測と整合する。</p>
+      <p><strong>新規性。</strong>LLM 介入などの拡張はまだないため、本報告の新規性は「GA が選ぶ解のモード分類 (歩行 vs 跳躍) と scheme 感度の対応関係を実測した点」に限られる。この観察が、次の評価設計 (罰則・制約の選択) の判断材料になる。</p>
+    </section>
+
+    <section id="todo">
+      <h2>残っている todo との照合・拡張案</h2>
+      <ul>
+        <li><strong>跳躍解への対処 (新規・最優先)。</strong>合意した順序は「まず変位だけでやり、意図しない解が観測されたら罰則を追加」。観測されたので、次の報告では次の 3 案を比較する: (1) 滞空率・重心最高高さの罰則、(2) <code>--energy-budget</code> (実装済み・未使用) の実値での効果測定、(3) 摩擦・接触剛性の変更で踏切が有利にならない条件の探索。いずれも比較方式間で評価式は固定する。</li>
+        <li><strong>刻み頑健性の保証。</strong>跳躍解が選ばれる間、GA 最良個体の scheme 間一致 (0.05 m) は保証できないため、回帰テストは破綻防止 (0.5 m) に留めてある (tests/regression/test_best_individual_scheme.py)。跳躍対策後に 0.05 m へ厳格化する。</li>
+        <li><strong>エネルギー記録の活用。</strong>距離 1.78 m に 51 J (28.8 J/m) を要した。罰則導入後は「距離あたり仕事」の分布を世代曲線と並べて報告し、budget の初期値の根拠にする。</li>
+        <li><strong>first goal の残件。</strong>docs/humans/spec.html の進捗表にある形状探索・LangGraph・feedback 制御は今回手つかず。合意どおり first goal (本報告の動作確認) 達成後に着手する。</li>
+        <li><strong>ビューアの強化。</strong>現状は 1 個体の再生のみ。次は世代選択・複数個体の比較・スコア推移パネル (shadcn/ui 検討) を加える。</li>
+      </ul>
+      <p class="warn"><strong>次回までの判断事項:</strong>跳躍への対処として罰則・エネルギー制約・物理調整のどれを先に試すか。報告者の暫定スタンスは (1) の滞空率罰則 (実装が最小で、合意の J = d − λ·罰則 に直接対応する) を第一候補とし、(2) を同時比較とすること。</p>
+    </section>
+  </main>
+</body>
+</html>

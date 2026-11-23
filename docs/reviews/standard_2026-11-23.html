@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>実装 review — src/bodyopt 全体（2026-11-23）</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #232323; color: #ededed; }
+    body { max-width: 60rem; margin: auto; padding: 1.5rem 1rem 3rem; line-height: 1.75; }
+    h1, h2, h3 { line-height: 1.4; }
+    h2 { margin-top: 2.25rem; border-bottom: 1px solid #888; padding-bottom: .3rem; }
+    a { color: #9eceff; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; background: #363636; padding: 0 .25em; border-radius: 3px; overflow-wrap: anywhere; }
+    table { border-collapse: collapse; width: 100%; background: #303030; margin: .8rem 0; font-size: .95rem; }
+    th, td { border: 1px solid #888; padding: .45rem .6rem; text-align: left; vertical-align: top; }
+    thead th { background: #3d3d3d; white-space: nowrap; }
+    .reco { border-left: 3px solid #b98f3e; padding: 4px 16px; background: #333634; margin: .8rem 0; border-radius: 10px; }
+    .reco h3 { margin-top: .6rem; }
+    .ok { color: #8fbe9f; font-weight: 600; }
+    .note { font-size: .88rem; color: #a6abb1; }
+    .meta { color: #c9cdd2; }
+    .status { display: inline-block; font-size: .85rem; font-weight: 600; padding: .1rem .55rem; border-radius: 8px; }
+    .status-auto { color: #8fbe9f; background: #2d3a33; border: 1px solid #3d5246; }
+    .layer { display: inline-block; font-size: .78rem; font-weight: 600; padding: 0 .45rem; border-radius: 4px; border: 1px solid; vertical-align: middle; }
+    .layer-src { color: #8fc8c6; background: #2b3a3a; border-color: #3f5857; }
+    .layer-docs { color: #d8a8c8; background: #3b2c36; border-color: #5a4152; }
+    .layer-other { color: #aeb2b0; background: #343635; border-color: #4b4e4d; }
+    .checks label { margin-right: 1.2rem; }
+    @media print { :root, .reco, table, thead th, .note, .meta { color-scheme: light; color: #222; background: white; } a { color: #155584; } }
+  </style>
+</head>
+<body>
+  <h1>実装 review — src/bodyopt 全体</h1>
+  <p class="meta">2026-11-23 作成。対象: first goal の初回実装 (src/bodyopt・viewer・tests)。検証: pyright 0 errors・pytest 25 件合格・短い GA run による再現性テスト実施。書式は aisin リポジトリの review 規約に倣い、6 章に計算効率・アルゴリズム・再現性の節を加えた。</p>
+
+  <h2>1. 総評</h2>
+  <p>合意した first goal (LangGraph なしの純粋 GA で周期制御を最適化) が end-to-end で動き、<strong>世代ループ内の CPU 同期を排除する計算構成 (jit + vmap + lax.scan、同期は最後の 1 回) を守れている</strong>。記録 (summary/population/full) と再現メタデータ (commit hash・seed・全パラメータ) も仕様どおり。クリティカルはなく、修正推奨 3 件のうち 2 件は本 review 中に修正・検証済みである。</p>
+  <ul>
+    <li class="ok">テスト 25 件合格 (静的・積分法回帰・短い GA run の再現性)。</li>
+    <li class="ok">10 世代 × 20 個体 × 5 秒の evolve が 1.25 秒 (JIT 込み) で完了、GPU メモリ 236 MB (OOM なし)。</li>
+    <li class="ok">再現性: 同一 seed で rel 1e-5 で一致 (tests/test_reproducibility.py)。</li>
+  </ul>
+
+  <h2>2. クリティカル（実装上の問題）</h2>
+  <p class="note">該当なし。</p>
+
+  <h2>3. 修正推奨</h2>
+  <div class="reco">
+    <h3>R1. <span class="layer layer-src">src</span> <span class="status status-auto">自動修正可</span> replay が保存された身体定義を使わない</h3>
+    <table>
+      <tr><th>箇所</th><td><code>src/bodyopt/cli.py:80</code>: <code>cmd_replay</code> — <code>spec = creature_from_summary(meta["creature"])</code> (修正後)</td></tr>
+      <tr><th>問題点</th><td>旧実装は replay 時に <code>_creature(args)</code> で身体を作り直していたため、実行時の <code>--n-cols</code> 既定値が変わると過去 run の再生が壊れる。記録の再現性 (遺伝子 + commit + params で同じ物理) を損なう。</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> §7 —「軌跡は遺伝子 + commit + params で再現できることを前提に」</td></tr>
+      <tr><th>修正案</th><td>meta.json の creature 概要から <code>CreatureSpec</code> を復元する (<code>io.creature_from_summary</code>)。概要に masses・stiffness・muscle_mask を追加し、旧形式 meta にもフォールバック対応。</td></tr>
+      <tr><th>影響範囲</th><td>io.creature_summary の保存項目が増える (向後互換は維持)。cmd_replay のみ。</td></tr>
+    </table>
+    <p class="checks"><label><input type="checkbox" checked disabled> 修正完了</label> <label><input type="checkbox" checked disabled> 動作確認完了</label></p>
+    <p class="note"><strong>修正完了:</strong> io.creature_from_summary を追加し cli.cmd_replay を切替。pyright・pytest 25 件・<code>replay --generation 9/0</code> の再実行で dx と滞空率が旧実装と一致することを確認した。</p>
+  </div>
+
+  <div class="reco">
+    <h3>R2. <span class="layer layer-src">src</span> <span class="status status-auto">自動修正可</span> rollout の未使用変数</h3>
+    <table>
+      <tr><th>箇所</th><td><code>src/bodyopt/physics.py:rollout</code> — <code>(pos_T, vel_T, _), outs = jax.lax.scan(...)</code> (修正後)</td></tr>
+      <tr><th>問題点</th><td>scan の最終 carry のうち時刻 <code>t_T</code> だけ未使用だった (times は arange で再構築)。可読性の軽微な問題。</td></tr>
+      <tr><th>修正案</th><td>アンダースコアで受ける。</td></tr>
+    </table>
+    <p class="checks"><label><input type="checkbox" checked disabled> 修正完了</label> <label><input type="checkbox" checked disabled> 動作確認完了</label></p>
+    <p class="note"><strong>修正完了:</strong> pytest 25 件合格で同一挙動を確認。</p>
+  </div>
+
+  <div class="reco">
+    <h3>R3. <span class="layer layer-docs">docs</span> <span class="status status-auto">自動修正可</span> viewer が creature の辺順序を再実装している (硬結合)</h3>
+    <table>
+      <tr><th>箇所</th><td><code>viewer/index.html:ladderEdges</code> — <code>pairs.push([i, i+1], [nCols+i, nCols+i+1], [i, nCols+i], [i, nCols+i+1])</code></td></tr>
+      <tr><th>問題点</th><td>viewer は src/bodyopt/creature.py の辺順序を JS で再実装している。creature.py の接続規則を変えたとき viewer が黙ってずれる。</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> §7 —「creature.py の接続規則を変えたら viewer 側も同じ順序に更新すること」(本 review で追記)</td></tr>
+      <tr><th>修正案</th><td>恒久対応は軌跡 JSON に <code>edges</code>・<code>base_pos</code> を同梱し viewer 側の再実装を削除すること。次回のビューア強化 (報告 0001 の todo) で実施する。</td></tr>
+      <tr><th>影響範囲</th><td>軌跡 JSON のサイズがわずかに増える。viewer の読込部。</td></tr>
+    </table>
+    <p class="checks"><label><input type="checkbox" disabled> 修正完了</label> <label><input type="checkbox" disabled> 動作確認完了</label></p>
+    <p class="note"><strong>持ち越し:</strong> 恒久対応は次回のビューア強化と合わせて実施 (報告 0001 の todo「ビューアの強化」と同根)。当面は SPEC の注意書きで運用。</p>
+  </div>
+
+  <h2>4. 構成・疎結合・契約の評価</h2>
+  <table>
+    <tr><th>観点</th><th>評価</th></tr>
+    <tr><td>ファイル構成</td><td class="ok">合意の構成どおり。src/bodyopt (実装)・params (ケース非依存)・resources/runs (生データ)・tests (+regression)・docs/agents・docs/humans・docs/report・viewer。</td></tr>
+    <tr><td>疎結合・import 階層</td><td class="ok">creature → physics → fitness → ga → io/cli の一方向。GA は評価を関数として注入され、物理に依存しない (brkga と同じ分離)。島モデル等の拡張は evolve_population を置き換える形で可能。</td></tr>
+    <tr><td>契約 (評価と記録)</td><td>評価は「重心右向き変位 + 無効判定 + 駆動仕事」のみ。無効を罰則に混ぜず INVALID_SCORE で常に下位 (SPEC §5 どおり)。R3 の辺順序のみ docs 側の注意で暫定運用。</td></tr>
+    <tr><td>UI/UX (viewer)</td><td>対象外 (本 review は src 中心。ビューアの本格評価は強化タイミングで実施)。</td></tr>
+  </table>
+
+  <h2>5. 型チェッカーの実行結果</h2>
+  <table>
+    <tr><th>範囲</th><th>結果</th></tr>
+    <tr><td>src + tests</td><td class="ok">pyright 0 errors・0 warnings (レビュー中に 9 件を解消: creature.py の jax 未 import、io.py の戻り値型)。</td></tr>
+  </table>
+  <p class="note">pyright 1.1.4xx (uv dev 依存) で実行。pyproject の無効設定 reportAny を削除した。</p>
+
+  <h2>6. 基本検査報告</h2>
+  <h3>6.1 コード品質・計算効率</h3>
+  <table>
+    <tr><th>検査項目</th><th>結果</th><th>備考</th></tr>
+    <tr><td>型チェック</td><td class="ok">0 errors</td><td>pyright (§5)</td></tr>
+    <tr><td>ハードコード</td><td class="ok">集約済み</td><td>物理・GA 既定値は SimParams/GAParams/params/default.json。viewer の辺順序のみ R3。</td></tr>
+    <tr><td>docs との乖離</td><td class="ok">解消</td><td>SPEC に再現性の限界 (atomic add) と viewer の硬結合を追記した。</td></tr>
+    <tr><td>テスト実行</td><td class="ok">25 件合格</td><td>静的 15.8 秒。回帰・slow は -m で選択実行。</td></tr>
+    <tr><td>計算効率 (合意 5-4)</td><td class="ok">遵守</td><td>世代ループ内の同期なし。evolve 10 世代×20 個体×1,000 ステップ = 1.25 秒 (JIT 込み)、単体ウォームアップ後 0.11 秒。GPU メモリ 236 MB。observe 内の三角関数 (毎ステップ 2 回/辺) は現規模では支配項でなく、ボトルネック確認後に検討。</td></tr>
+  </table>
+
+  <h3>6.2 アルゴリズム的な改善箇所 (次回候補)</h3>
+  <table>
+    <tr><th>候補</th><th>判断</th></tr>
+    <tr><td>エリートの重複排除 (brkga の elite de-dup)</td><td>参考実装にあるが未導入。集団 20・10 世代では best 1.234 が 5 世代連続した後 1.42 に更新しており現状は機能している。停滞が観測されたら導入。</td></tr>
+    <tr><td>トーナメント両親が同一個体になる (selfing)</td><td>一様交叉で実質クローンが生じ得る。現状の改善圧力では未問題化。導入は余分なキー消費と引き換えのため、停帯観測時に再評価。</td></tr>
+    <tr><td>跳躍解への罰則・エネルギー制約</td><td><a href="../report/0001_first_ga_run.html">報告 0001</a>の判断事項 (利用者判断)。評価式を変えるため GA 比較方式間での固定条件と併せて決める。</td></tr>
+  </table>
+
+  <h3>6.3 再現性チェック (軽い run)</h3>
+  <table>
+    <tr><th>検査</th><th>結果</th></tr>
+    <tr><td>同一 seed の 2 回実行</td><td class="ok">score・集団とも rel 1e-5 で一致 (tests/test_reproducibility.py::Test同一シード)。</td></tr>
+    <tr><td>異 seed の分離</td><td class="ok">seed 0/1 で集団が独立 (Test異シード)。</td></tr>
+    <tr><td>探索の改善</td><td class="ok">3 世代×8 個体×0.5 秒 episode で best が初期世代を上回り、無効のままがいない (TestGA探索)。</td></tr>
+    <tr><td>既知の限界</td><td>scatter-add は GPU の atomic 演算のため float32 最下位ビットが非決定。ビット一致は要求しない (SPEC §6 に明記)。</td></tr>
+  </table>
+
+  <h2>7. 補足</h2>
+  <ul>
+    <li>本 review の対象は first goal の初回実装。LangGraph・LLM は未導入 (合意どおり)。</li>
+    <li><strong>残作業:</strong> R3 (軌跡 JSON への辺同梱) は次回のビューア強化で実施。跳躍解への対処は <a href="../report/0001_first_ga_run.html">報告 0001</a> のとおり利用者判断を待つ。</li>
+    <li><strong>最終承認:</strong> 未承認 (R3 を持ち越しているため、承認後に docs/reviews/archive/ へ移動する)。</li>
+  </ul>
+</body>
+</html>
