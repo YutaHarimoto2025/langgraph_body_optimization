@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Junior Rojas の人工身体研究と GA を監督するエージェント</title>
+  <style>
+    :root { color-scheme: dark; background: #232323; color: #ededed; font-family: system-ui, sans-serif; }
+    body { max-width: 56rem; margin: auto; padding: 1.5rem 1rem 3rem; line-height: 1.75; }
+    h1, h2, h3 { line-height: 1.4; }
+    h2 { margin-top: 2.25rem; border-bottom: 1px solid #888; padding-bottom: .3rem; }
+    a { color: #9eceff; overflow-wrap: anywhere; }
+    :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
+    nav { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+    .lead { border-left: .25rem solid #85d6bf; padding: .75rem 1rem; background: #293a36; }
+    .meta { color: #c9c9c9; }
+    .comparison { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; background: #303030; }
+    caption { text-align: left; font-weight: 700; margin-bottom: .35rem; }
+    th, td { border: 1px solid #888; padding: .55rem; text-align: left; vertical-align: top; }
+    thead th { background: #3d3d3d; }
+    li + li { margin-top: .45rem; }
+    @media print {
+      :root, .lead, table, thead th, .meta { color-scheme: light; color: #222; background: white; }
+      a { color: #155584; }
+      nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Junior Rojas の人工身体研究と GA を監督するエージェント</h1>
+    <p class="meta">先行研究調査｜2026年11月21日</p>
+    <p class="lead">Rojas は2016年に柔らかい身体の筋肉制御を遺伝的アルゴリズム（GA）で探索し、2025年には同じ制御器で二足と四足を動かしました。確認した本人の公開資料では、<strong>大規模言語モデル（LLM）が進化の停滞を見て GA の戦略を変え、その効果を次の世代で確かめる実験</strong>は見当たりませんでした。他の研究には近い先行例があるため、このプロジェクトでは「どの停滞にどの介入が効くか」を比較するのが有望です。</p>
+    <nav aria-label="目次">
+      <a href="#rojas">Rojas の到達点</a>
+      <a href="#lessons">参考にできる知見</a>
+      <a href="#gap">エージェントの先行例</a>
+      <a href="#experiment">初回実験の提案</a>
+      <a href="#sources">出典</a>
+    </nav>
+  </header>
+  <main>
+    <section id="rojas">
+      <h2>Rojas は固定形状の歩行進化から、二足・四足での制御器共有まで実演した</h2>
+      <div class="comparison">
+        <table>
+          <caption>本人の公開資料で確認した内容</caption>
+          <thead><tr><th scope="col">公開物</th><th scope="col">実際に行ったこと</th><th scope="col">実験の範囲</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">2016年：GA 歩行デモ <a href="#r1">[1]</a></th><td>変形する三角形の辺を筋肉とし、各辺を周期的に収縮させる周波数を遺伝子にしました。短時間の移動で個体を選び、交叉・突然変異で制御を改善しました。</td><td>身体そのものは変えていません。時刻だけを入力する制御で、状態に応じて筋肉を動かすフィードバックはありません。</td></tr>
+            <tr><th scope="row">2019年：2D 柔軟体の強化学習 <a href="#r2">[2]</a></th><td>三角形メッシュの頂点位置・速度を身体の座標系に直して入力し、筋肉の自然長を変える制御器を学習しました。水平移動と跳躍を別々に訓練し、外から力を加えた状態からの回復も実演しています。</td><td>GA による形態探索ではありません。水平移動の報酬は身体の局所座標系の水平変位で、本プロジェクトの質量重み付き重心の変位とは定義が異なります。</td></tr>
+            <tr><th scope="row">2021年：微分可能な陰的柔軟体物理 <a href="#r3">[3]</a></th><td>陰的な時間更新をエネルギー最小化として記述し、自動微分から制御学習に必要な勾配を計算しました。論文の移動課題ではモデルフリー強化学習より少ないサンプルで学習できたと報告しています。</td><td>物理ステップと制御学習の研究です。本プロジェクトの GPU 上の GA より速いと示したわけではありません。</td></tr>
+            <tr><th scope="row">2024年：Algovivo <a href="#r4">[4]</a></th><td>弾性三角形、筋肉、重力、地面との衝突、摩擦、慣性をエネルギー項に分けた柔軟体シミュレータです。C++・Enzyme の実装を WebAssembly 向けにビルドし、JavaScript から動かせるデモを公開しています。</td><td>ブラウザで身体の挙動を観察する参考になります。公開例は JAX で集団を一括評価する GPU GA ではありません。</td></tr>
+            <tr><th scope="row">2025年：形態に適応する Attention 制御 <a href="#r5">[5]</a></th><td>静止形状での頂点位置をキーとし、現在の位置・速度を参照します。各筋肉が同じ制御器を使って必要な頂点情報を取り出し、一組の学習済み重みで二足（28頂点・19筋）と四足（62頂点・38筋）を動かしました。</td><td>二形態とも訓練対象です。形態ごとに訓練済みの制御器が作った軌跡を教師にした模倣学習で、未学習の形態への汎化、形態の進化、移動のゼロからの学習を示した実験ではありません。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>2025年の Attention は、<strong>身体の状態を読み、筋肉を動かす制御器の一部</strong>です。LLM に似た注意機構を使っていても、世代をまたいで結果を読み、進化戦略を変えるエージェントとは役割が違います。</p>
+    </section>
+
+    <section id="lessons">
+      <h2>初回は周期制御と再生の分離を参考にする</h2>
+      <h3>身体を固定した対照を残す</h3>
+      <p>2016年のデモでは、周期制御だけでも移動が生じました <a href="#r1">[1]</a>。こちらでは、接続と初期形状を固定して振幅・位相だけを探索する対照を残すと、初期形状も探索した場合の上積みを切り分けられます。Rojas は周波数を探索しており、本プロジェクトの共通周波数・可変振幅・可変位相とは別の設定です。まずは現在の仕様を変えずに比較します。</p>
+      <h3>材質と駆動を分けて診断し、軌跡は必要なときにだけ作る</h3>
+      <p>Algovivo のように、構造の弾性、筋肉の駆動、地面との接触を個別に点検すると、進まない原因を切り分けやすくなります。初回から三角形の有限要素モデルや陰的積分に置き換える必要はありません。2025年の公開コードは軌跡生成と描画を別工程にしています <a href="#r5">[5]</a>。こちらも進化中は JAX で距離や接触・無効判定を集計し、気になる個体だけ同じ物理コードで再生します。</p>
+      <h3>接続や質点数を変える段階で、制御器の共有を試す</h3>
+      <p>2025年の方法を参考に、各筋肉へ同じ小さな制御器を適用すれば、筋肉が増減するたびに出力層を作り直さずに済みます。まずは各筋肉の長さ・伸縮速度・端点の接触を使う共有制御を比較し、遠くの頂点の情報も必要なら Attention を試します。論文では理想軌跡から外れることがあり、問題が起きた状態からの参照軌跡を追加すると改善しました <a href="#r5">[5]</a>。こちらでも訓練に使わない形態・摩擦・初期姿勢を分け、同じ制御器の重みのまま移動できるかを評価します。</p>
+    </section>
+
+    <section id="gap">
+      <h2>Rojas の公開資料では未確認だが、近いエージェント研究はある</h2>
+      <p>本人サイトと公開リポジトリ一覧、そこからたどれる主要資料を確認しました <a href="#r0">[0]</a>。身体の候補を LLM が提案する実験、LLM が GA の演算子を選ぶ実験、LLM が探索アルゴリズムを生成する実験は、今回確認した Rojas の資料には見当たりません。これは公開資料についての判断で、未公開の活動や分野全体の新規性を示すものではありません。</p>
+      <ul>
+        <li>今回調べた中では <a href="#r6">LAOS（Zhang・Yi、2025年）</a>が<strong>GA を監督する案に最も近い先行例</strong>です。進捗・最良スコア・集団の多様性と演算子の実績を LLM に渡し、進化計算で使う演算子を適応的に選びます。本プロジェクトでは、滑りや跳躍、数値発散の情報も渡すと、同じ戦略候補からより適切なものを選べるかを問えます。</li>
+        <li><a href="#r7">RoboMorph</a> と <a href="#r8">Auto-Robotist</a> は、LLM が<strong>身体を提案する案</strong>に近いです。前者は文法で表した部品構成を進化的に改良します。後者は EvoGym のボクセル身体を探索し、評価した設計を根拠付きの自然言語ルールとして蓄積し、次の設計提案に使います。「評価→内省→再提案」や「失敗を記憶する」だけでは差になりません。</li>
+        <li><a href="#r9">LLaMEA</a> は <strong>探索アルゴリズム自体を設計する案</strong>の先行例です。アルゴリズムの生成・変異・評価を繰り返します。最初はこの段階まで広げず、同じ GA の中で戦略の選び方だけを変えます。</li>
+        <li><a href="#r10">Evolution and learning in differentiable robots</a> は、<strong>形態の進化と制御学習</strong>の比較に向いています。外側の GA が形態を変え、個体の制御器は並列の微分可能シミュレーションで訓練します。形態と制御を別の段階で最適化する先行例で、LLM による監督とは異なります。</li>
+      </ul>
+    </section>
+
+    <section id="experiment">
+      <h2>同じ停滞状態から分岐させて、介入の選び方を比べる</h2>
+      <p class="lead"><strong>最初に検証する問い：</strong>距離・有効率・多様性だけを見る場合に比べ、接触や挙動の集計も見た LLM は、同じ評価予算でよりよい GA 戦略を選べるか。</p>
+      <p>まず <a href="1121_langgraph_first_experiment_selection_idea.html">GPU 前提の技術選定案</a>に沿い、接続固定の 2D 質点・バネ、重心の右向き変位、描画なしの JAX 評価を使います。LangGraph は5世代ごとに集計を受け取り、停滞時には「継続」「次の世代だけ変異を強める」「次の世代の新規候補の一部を置換」のいずれかを適用します。評価式は固定し、滑りや跳躍などの観測値は診断にだけ使います。LLM に身体・評価式・コードを同時に変更させると、何が改善に効いたか分からなくなるためです。</p>
+      <ol>
+        <li><strong>探索全体を比較します。</strong>固定 GA、ルール介入 GA、LLM 介入 GA を、同じ初期集団・候補予算・複数シードで実行します。介入する方式は同じ停滞判定と戦略候補を使います。LLM には、数値集計だけを渡す条件と、接触率・接地中の横滑り・滞空率・無効理由も渡す条件を設けます。</li>
+        <li><strong>介入の効果を別に測ります。</strong>一部の停滞時点で集団と乱数状態を保存し、同じ状態から継続・変異強化・部分置換をそれぞれ試します。各分岐に同数の候補評価を割り当て、5世代後の改善量で比べます。追試結果はその場の戦略選択に使わず、探索本体と別に費用を記録します。これで「介入後に改善した」と「その介入を選んだために改善した」を区別しやすくなります。</li>
+        <li><strong>判断とその結果を結び付けて残します。</strong>候補数に対する最良距離、有効率、実行時間、LLM 呼び出し数を方式別に記録します。各介入では入力・選択・理由・適用後の改善を対応付け、滑って進む個体や滞空で距離を稼ぐ個体は必要に応じて再生します。評価回数が減っても時間や費用が増える場合は、両方を報告します。</li>
+      </ol>
+      <p>固定形状で比較手順を確認したあと、元の計画どおり接続を固定したまま初期形状も探索します。そこで「形状と制御のどちらを変えるべきか」が診断の対象になります。複数の身体へ学習済み制御を移す実験は、同じ重みで未学習形態を動かせるかという独立した問いとして扱います。</p>
+    </section>
+
+    <section id="sources">
+      <h2>出典</h2>
+      <dl>
+        <dt id="r0">[0] 調査範囲</dt>
+        <dd><a href="https://juniorrojas.com/">Junior Rojas 本人サイト</a>、<a href="https://github.com/juniorrojas?tab=repositories">本人の公開 GitHub リポジトリ一覧</a>。本報告では論文と公開コードの説明を照合し、デモの再現実験は行っていません。</dd>
+        <dt id="r1">[1] Junior Rojas（2016年）</dt>
+        <dd><a href="https://medium.com/@juniorrojas/learning-to-walk-with-a-genetic-algorithm-53a9801b2f7e">Learning to walk with a genetic algorithm</a>（本人記事）。</dd>
+        <dt id="r2">[2] Rojas・Coros・Kavan（2019年）</dt>
+        <dd><a href="https://juniorrojas.com/papers/2019-drl-sbl.pdf">Deep reinforcement learning for 2D soft body locomotion</a>（NeurIPS ワークショップ、特に §2–4）。</dd>
+        <dt id="r3">[3] Rojas・Sifakis・Kavan（2021年）</dt>
+        <dd><a href="https://arxiv.org/abs/2102.05791">Differentiable Implicit Soft-Body Physics</a>（arXiv）。</dd>
+        <dt id="r4">[4] Junior Rojas（2024年）</dt>
+        <dd><a href="https://doi.org/10.1162/isal_a_00748">Energy-Based Models for Virtual Creatures</a>（ALIFE）、<a href="https://github.com/juniorrojas/algovivo">Algovivo の公開コード</a>、<a href="https://juniorrojas.com/algovivo">公開デモ</a>。</dd>
+        <dt id="r5">[5] Junior Rojas（2025年）</dt>
+        <dd><a href="https://juniorrojas.com/papers/2025-morphology-adaptive.pdf">Morphology-Adaptive Muscle-Driven Locomotion via Attention Mechanisms</a>（GECCO Companion／EvoSelf、特に §3–5）、<a href="https://github.com/juniorrojas/morphology-adaptive">公開コードと再生手順</a>。</dd>
+        <dt id="r6">[6] Zhang・Yi（2025年）</dt>
+        <dd><a href="https://dl.acm.org/doi/10.1145/3712256.3726450">LAOS: Large Language Model-Driven Adaptive Operator Selection for Evolutionary Algorithms</a>（GECCO、公開要旨を参照）。</dd>
+        <dt id="r7">[7] Qiu ほか（2024年初版、2026年改訂）</dt>
+        <dd><a href="https://arxiv.org/abs/2407.08626v3">RoboMorph: Evolving Robot Morphology using Large Language Models</a>。</dd>
+        <dt id="r8">[8] Wang ほか（2026年）</dt>
+        <dd><a href="https://arxiv.org/abs/2605.25832v2">When Search Becomes Memory: Accelerating Robot Design Discovery with Self-Evolving Skills</a>（Auto-Robotist）。</dd>
+        <dt id="r9">[9] van Stein・Bäck（2025年）</dt>
+        <dd><a href="https://arxiv.org/abs/2405.20132v4">LLaMEA: A Large Language Model Evolutionary Algorithm for Automatically Generating Metaheuristics</a>。</dd>
+        <dt id="r10">[10] Strgar ほか（2024年）</dt>
+        <dd><a href="https://roboticsconference.org/2024/program/papers/100/">Evolution and learning in differentiable robots</a>（RSS）。</dd>
+      </dl>
+      <p>本プロジェクトの比較対象：<a href="0912_langgraph_artificial_body_optimization_idea.md">人工身体の最適化アイデアメモ</a>、<a href="1121_langgraph_first_experiment_selection_idea.html">初回実験の技術選定</a>。</p>
+    </section>
+  </main>
+</body>
+</html>

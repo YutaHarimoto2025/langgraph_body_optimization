@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>人工身体の最適化｜GPU 前提の技術選定</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #232323; color: #ededed; }
+    body { max-width: 56rem; margin: auto; padding: 1rem; line-height: 1.65; }
+    h1, h2 { line-height: 1.3; }
+    h2 { margin-top: 2rem; }
+    a { color: #9eceff; }
+    nav { display: flex; gap: .5rem 1rem; flex-wrap: wrap; }
+    .intro { border-left: .25rem solid #85d6bf; padding: .65rem 1rem; background: #293a36; }
+    fieldset { min-width: 0; margin: 0 0 1rem; padding: .5rem .75rem .75rem; border: 1px solid #888; border-radius: .5rem; background: #303030; }
+    legend { font-weight: 700; padding: 0 .35rem; }
+    label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .6rem; align-items: start; padding: .35rem .25rem; cursor: pointer; }
+    input { margin: .38rem 0 0; accent-color: #85d6bf; inline-size: 1.1rem; block-size: 1.1rem; }
+    label:hover, label:focus-within { background: #3d3d3d; }
+    .recommended { color: #a3ecd7; background: #293a36; padding: .08rem .35rem; border-radius: .25rem; font-size: .85em; white-space: nowrap; }
+    button { font: inherit; padding: .4rem .75rem; cursor: pointer; color: inherit; background: #303030; border: 1px solid #888; border-radius: .25rem; }
+    :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
+    code { overflow-wrap: anywhere; }
+    @media print {
+      :root, fieldset, .intro, .recommended, label:hover, label:focus-within { color-scheme: light; color: #222; background: white; }
+      a { color: #155584; }
+      input { accent-color: #227063; }
+      fieldset { break-inside: avoid; }
+      nav, button { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>人工身体の最適化：GPU 前提の技術選定</h1>
+    <p><a href="0912_langgraph_artificial_body_optimization_idea.md">元のアイデアメモ</a>の §9「Level 1」と §11「最初の実装イメージ」を対象にします。2D の質点・バネ身体の接続を固定し、遺伝的アルゴリズム（GA）で形状と筋肉の制御を探索します。LangGraph で停滞時の判断、戦略変更、失敗時の復帰を追えるか確かめます。接続の変更、LLM による身体の直接設計や探索コードの生成は次段階に回します。</p>
+    <p class="intro"><strong>おすすめ：</strong>Linux の NVIDIA GPU 1枚で、Python 3.12・uv・JAX を使います。GA と物理評価をまとめて GPU で実行し、LangGraph は数世代ごとに集計値だけを受け取ります。進化中は描画せず、見たい個体だけ別コマンドで再生します。まず固定 GA と模擬応答で動作を確認し、次に実際の LLM を使います。</p>
+    <nav aria-label="選定項目">
+      <a href="#environment">環境と依存管理</a>
+      <a href="#physics">身体と物理</a>
+      <a href="#search">探索と評価</a>
+      <a href="#graph">LangGraph と LLM</a>
+      <a href="#review">可視化と検証</a>
+    </nav>
+  </header>
+
+  <main>
+    <p id="instructions">各項目は原則として1案を選びます。「併用可」の項目は複数選べます。比較中はどの項目も複数にチェックできます。「おすすめ」は提案であり、初期状態では未選択です。チェック内容はこのブラウザに自動で保存され、再読み込みしても復元されます（別ファイル・別ブラウザ・別端末とは共有されません）。記録を残す場合は印刷機能で PDF 保存してください。</p>
+    <form aria-describedby="instructions" autocomplete="off">
+      <section aria-labelledby="environment">
+        <h2 id="environment">1. 環境と依存管理</h2>
+        <fieldset>
+          <legend>1-1. Python のバージョン</legend>
+          <label><input type="checkbox" name="python" value="3.12"><span><strong>Python 3.12</strong> <span class="recommended">おすすめ</span> — 依存ライブラリの組み合わせをまず1バージョンで検証します。</span></label>
+          <label><input type="checkbox" name="python" value="3.13"><span><strong>Python 3.13</strong> — 採用ライブラリのバイナリ配布とテスト通過を確認できる場合に選びます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>1-2. 仮想環境と依存の固定</legend>
+          <label><input type="checkbox" name="dependencies" value="uv"><span><strong>uv + pyproject.toml + uv.lock</strong> <span class="recommended">おすすめ</span> — <code>uv python pin 3.12</code> で開発用の Python を指定し、<code>uv sync --locked</code> でロック済みの依存を同期します。</span></label>
+          <label><input type="checkbox" name="dependencies" value="pip"><span><strong>venv + pip-tools</strong> — <code>pip-compile</code> で依存を固定します。チームが pip を標準にしている場合に向きます。</span></label>
+          <label><input type="checkbox" name="dependencies" value="conda"><span><strong>micromamba + conda-lock</strong> — OS 側の数値ライブラリまで環境に含めたい場合に選びます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>1-3. 実行場所</legend>
+          <label><input type="checkbox" name="runtime" value="local"><span><strong>ローカル Linux・NVIDIA GPU 1枚</strong> <span class="recommended">おすすめ</span> — 単一プロセスで動かし、コンテナなしでドライバと JAX の組み合わせを確認します。</span></label>
+          <label><input type="checkbox" name="runtime" value="container"><span><strong>Docker / Dev Container・NVIDIA GPU 1枚</strong> — 複数人で環境をそろえる場合に選びます。ホストの NVIDIA ドライバと NVIDIA Container Toolkit が必要です。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>1-4. JAX の CUDA ランタイム</legend>
+          <label><input type="checkbox" name="cuda" value="wheels"><span><strong>Python パッケージで CUDA を導入</strong> <span class="recommended">おすすめ</span> — GPU とドライバが対応するなら <code>jax[cuda13]</code>、CUDA 12 が必要なら対応版の <code>jax[cuda12]</code> をロックします。ホストには NVIDIA ドライバが必要です。</span></label>
+          <label><input type="checkbox" name="cuda" value="system"><span><strong>既設の CUDA / cuDNN を利用</strong> — 管理済みの環境では <code>jax[cuda13-local]</code> などを選び、JAX が要求する各ライブラリのバージョンと照合します。</span></label>
+        </fieldset>
+        <p><a href="https://docs.jax.dev/en/latest/installation.html">JAX 公式のインストール要件</a>で対応 GPU とドライバを確認します。実装時は <code>nvidia-smi</code> と <code>jax.devices("gpu")</code> で認識を確認し、進化実験では GPU が使えなければ停止します。CPU で実行するのは、明示的に選んだテストや比較計測だけです。</p>
+      </section>
+
+      <section aria-labelledby="physics">
+        <h2 id="physics">2. 身体と物理</h2>
+        <fieldset>
+          <legend>2-1. JAX シミュレータのバッチ処理</legend>
+          <label><input type="checkbox" name="simulator" value="vmap"><span><strong>単体モデルを <code>vmap</code> で一括評価</strong> <span class="recommended">おすすめ</span> — 選択した時間刻みに応じたステップ数を <code>lax.scan</code> で進め、集団軸に <code>vmap</code> を適用します。単体テストと再生で同じ物理ステップを使います。</span></label>
+          <label><input type="checkbox" name="simulator" value="explicit-batch"><span><strong>物理ステップに集団軸を直接組み込む</strong> — 位置・速度を <code>[候補数, 質点数, 2]</code> の配列で更新します。プロファイラで処理の見直しが必要と分かった場合の比較案です。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>2-2. 身体の規模と接続</legend>
+          <label><input type="checkbox" name="body" value="six"><span><strong>6質点・9辺の三角補強ラダー</strong> <span class="recommended">おすすめ</span> — 上下2列×3点。横4・縦3・対角2本で接続し、全点の質量を 1 kg にそろえます。</span></label>
+          <label><input type="checkbox" name="body" value="eight"><span><strong>8質点・13辺の三角補強ラダー</strong> — 上下2列×4点。形状の自由度を増やせますが、探索と可視化の確認項目が増えます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>2-3. 探索する設計変数</legend>
+          <label><input type="checkbox" name="genes" value="geometry-control"><span><strong>初期形状と筋肉制御</strong> <span class="recommended">おすすめ</span> — 基準座標から各点を各軸 ±0.10 m ずらし、各辺の振幅を 0〜0.20、位相を 0〜2π rad で探索します。基準自然長は変形後の初期辺長、周波数は全辺共通で 1 Hz とします。</span></label>
+          <label><input type="checkbox" name="genes" value="control"><span><strong>筋肉制御のみ</strong> — 形状を固定し、振幅と位相だけを探索します。まず移動を確認したい場合の切り分けに向きます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>2-4. 時間刻み</legend>
+          <label><input type="checkbox" name="timestep" value="0.005"><span><strong>半陰的オイラー法・5 ms</strong> <span class="recommended">おすすめ</span> — 1試行は5秒・1,000ステップ。実験前に 2.5 ms でも代表個体を再生し、変位や最大めり込みを比較します。</span></label>
+          <label><input type="checkbox" name="timestep" value="0.0025"><span><strong>半陰的オイラー法・2.5 ms</strong> — 1試行は5秒・2,000ステップ。5 ms で結果が刻みに大きく依存する場合に選びます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>2-5. 地面との接触と摩擦</legend>
+          <label><input type="checkbox" name="contact" value="penalty"><span><strong>ペナルティ反力 + 滑らかなクーロン摩擦</strong> <span class="recommended">おすすめ</span> — 地面にめり込んだ点にだけ反力と摩擦を適用します。摩擦の符号関数を <code>tanh(vx / 0.05)</code> で近似して、速度ゼロ付近での符号の急変を抑えます。静止摩擦そのものは再現しません。</span></label>
+          <label><input type="checkbox" name="contact" value="projection"><span><strong>位置補正 + 速度インパルス</strong> — 床を下回った点を床面へ戻し、法線方向の補正に応じて横速度を減らします。食い込み量を管理しやすい反面、補正が移動距離に与える影響の検証が要ります。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>2-6. 物理計算の精度</legend>
+          <label><input type="checkbox" name="precision" value="float32"><span><strong>GPU では <code>float32</code></strong> <span class="recommended">おすすめ</span> — 代表個体を <code>float64</code> でも評価し、変位・最大めり込み・無効判定に実験の解釈を変えるほどの差がないか確認します。</span></label>
+          <label><input type="checkbox" name="precision" value="float64"><span><strong>JAX の 64 ビット計算を有効にする</strong> — 精度差が評価に影響する場合に採用します。GPU によっては倍精度演算が遅いため、候補評価数/秒も測ります。</span></label>
+        </fieldset>
+        <p class="intro"><strong>推奨案の調整開始値：</strong>列間隔 0.5 m、行間隔 0.4 m、最下点を床（<var>y</var> = 0）から 0.05 m 上に配置し、初速をゼロにします。重力加速度 9.81 m/s²、バネ剛性 100 N/m、接触剛性 2,000 N/m、接触減衰 50 N·s/m、摩擦係数 0.7 とします。数値は未検証の初期値です。決めた値は比較方式間で固定します。</p>
+      </section>
+
+      <section aria-labelledby="search">
+        <h2 id="search">3. 探索と評価</h2>
+        <fieldset>
+          <legend>3-1. GA のライブラリ</legend>
+          <label><input type="checkbox" name="optimizer" value="jax"><span><strong>JAX の配列演算で GA を実装</strong> <span class="recommended">おすすめ</span> — 集団・スコア・乱数キーを GPU に保持し、選択・交叉・変異・エリート継承と一括物理評価をまとめて <code>jit</code> します。介入で値が変わっても、配列の形状は変えません。</span></label>
+          <label><input type="checkbox" name="optimizer" value="evosax"><span><strong>evosax の <code>SimpleGA</code></strong> — 既製の JAX GA を使う案です。選択・変異・部分リスタートを実験条件に合わせられるか確認してから採用します。</span></label>
+        </fieldset>
+        <p><a href="https://github.com/RobertTLange/evosax">evosax 公式リポジトリ</a>で、集団を初期化してから候補生成・評価・更新を繰り返すインターフェースを確認できます。</p>
+        <p><strong>参考実装：</strong><a href="../../../aisin_trajectory_planner/third_party/trajectory-solver-generic/src/optim/brkga.py">trajectory-solver-generic の BRKGA</a>では、集団行列 <code>[候補数, 遺伝子数]</code> をまとめて評価し、乱数キーの分割、エリート継承、交叉を JAX の配列演算で行っています。本案はこのデータの持ち方を参考にしますが、最小化用の BRKGA や毎世代のスコア取り出しは流用しません。重心の右向き変位を最大化し、世代ループもまとめてコンパイルします。</p>
+        <fieldset>
+          <legend>3-2. スコアと無効候補</legend>
+          <label><input type="checkbox" name="fitness" value="distance"><span><strong>重心の右向き変位のみ</strong> <span class="recommended">おすすめ</span> — 5秒後と開始時の重心の <var>x</var> 座標の差を m で評価します。非有限値、ゼロ長の辺、0.10 m を超えるめり込みは無効とし、有効候補より常に下位に扱います。めり込みの上限は調整開始値です。</span></label>
+          <label><input type="checkbox" name="fitness" value="penalty"><span><strong>変位 + 跳躍などへの罰則</strong> — 数値的には有効でも意図しない動きが観測されたときに比較します。罰則の重みを固定し、変位も別に記録します。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>3-3. 試行予算とシード</legend>
+          <label><input type="checkbox" name="budget" value="1000"><span><strong>各方式・各シードで候補1,000件、共通シード5個</strong> <span class="recommended">おすすめ</span> — 初期20候補と、その後の49世代×20新規候補。無効になった候補も予算に含め、物理を実行した件数は別に記録します。</span></label>
+          <label><input type="checkbox" name="budget" value="200"><span><strong>各方式で候補200件、共通シード1個</strong> — 初期20候補と9世代で、グラフの接続や停止条件を確認します。方式間の性能差を結論づけるには使いません。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>3-4. 比較する方式</legend>
+          <label><input type="checkbox" name="comparison" value="three"><span><strong>固定 GA・ルール介入 GA・LLM 介入 GA</strong> <span class="recommended">おすすめ</span> — 固定 GA と比べて介入の効果を、ルール介入 GA と比べて LLM を使う効果を見ます。初期集団、評価条件、予算を合わせ、介入2方式では判断機会と選べる戦略もそろえます。</span></label>
+          <label><input type="checkbox" name="comparison" value="two"><span><strong>固定 GA・LLM 介入 GA</strong> — 最少の方式数で始められますが、改善があっても、LLM 固有の効果か介入自体の効果かは分かりません。</span></label>
+          <label><input type="checkbox" name="comparison" value="fixed"><span><strong>固定 GA のみ</strong> — 外部 API を使わず、物理と GA の動作確認に絞ります。</span></label>
+        </fieldset>
+        <p class="intro"><strong>GA の初期設定案：</strong>集団20、3個体のトーナメント選択、一様交叉率0.8、遺伝子ごとの突然変異率0.10。変異は各変数の探索幅の5%を標準偏差とするガウスノイズとし、位相は周期で折り返し、他の値は範囲内に収めます。前世代の上位2個体は再評価せず、新規20候補の下位2個体と合わせた4個体から上位2個体を選び、次世代の集団を20に保ちます。</p>
+      </section>
+
+      <section aria-labelledby="graph">
+        <h2 id="graph">4. LangGraph と LLM</h2>
+        <fieldset>
+          <legend>4-1. グラフ構造</legend>
+          <label><input type="checkbox" name="graph" value="batch"><span><strong>5世代をまとめて GPU で実行</strong> <span class="recommended">おすすめ</span> — <code>lax.scan</code> で世代を進め、各世代の集計値だけをまとめて CPU に戻します。LangGraph は予算と停滞を判定し、必要なら診断・検証を経て、次の呼び出しに戦略を渡します。固定 GA は診断を通りません。</span></label>
+          <label><input type="checkbox" name="graph" value="generation"><span><strong>1世代ずつ GPU を呼び出す</strong> — 世代ごとの分岐を追いやすいデバッグ用です。集団は GPU に残しますが、世代ごとに CPU が集計値を待ちます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>4-2. 停滞の判定</legend>
+          <label><input type="checkbox" name="stagnation" value="window"><span><strong>5世代ごとに累積最良値の改善を確認</strong> <span class="recommended">おすすめ</span> — 5世代前との差が 0.01 m 未満なら介入します。両時点に有効なスコアがあり、予算が残っている場合にだけ判定します。</span></label>
+          <label><input type="checkbox" name="stagnation" value="periodic"><span><strong>改善量に関係なく5世代ごとに判断</strong> — 判断頻度をそろえやすい一方、改善中にも判断を行います。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>4-3. 診断の実行先（併用可）</legend>
+          <label><input type="checkbox" name="diagnosis" value="stub"><span><strong>模擬応答</strong> <span class="recommended">最初におすすめ</span> — 判断、応答形式の不正、タイムアウトを外部 API なしで再現し、グラフの分岐を検証します。</span></label>
+          <label><input type="checkbox" name="diagnosis" value="api"><span><strong>クラウド LLM（例：langchain-openai）</strong> <span class="recommended">実測時におすすめ</span> — 構造化出力に対応するモデルを1つ選び、モデル ID・設定・応答を記録します。外部へ送るデータは世代の集計値に絞ります。</span></label>
+          <label><input type="checkbox" name="diagnosis" value="ollama"><span><strong>ローカル LLM（Ollama + langchain-ollama）</strong> — 外部 API への送信を避けたい場合に選びます。モデルのメモリ要件・応答時間・構造化出力の適合率を事前に確かめます。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>4-4. 戦略の検証と失敗時の動作</legend>
+          <label><input type="checkbox" name="decision" value="pydantic"><span><strong>Pydantic で構造化出力を検証</strong> <span class="recommended">おすすめ</span> — 入力は累積最良・集団平均・有効率・範囲で正規化した遺伝子のばらつき。出力は「継続」「次の1世代だけ変異率を0.20に変更」「次の1世代の新規候補4枠をランダム候補に置換」と理由に限ります。30秒のタイムアウトや不正出力では再試行せず「継続」に戻し、理由を記録します。</span></label>
+          <label><input type="checkbox" name="decision" value="json"><span><strong>標準ライブラリの JSON + 手動検証</strong> — 同じ許可リストを手動で検証します。スキーマが小さい間は依存を抑えられますが、型や必須項目の漏れをテストします。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>4-5. 状態保存と再開</legend>
+          <label><input type="checkbox" name="checkpoint" value="none"><span><strong>実行中の集団は GPU メモリに保持</strong> <span class="recommended">おすすめ</span> — 集団全体を LangGraph のログや永続化対象に含めず、集計値と終了時の最良個体だけ保存します。中断したシードは最初から実行します。</span></label>
+          <label><input type="checkbox" name="checkpoint" value="npz"><span><strong>複数世代の区切りで NPZ + JSON に保存</strong> — 長時間実験の中断に備える案です。集団・スコア・乱数状態と評価済み件数をコピーして保存し、再開時の二重評価を検証します。</span></label>
+        </fieldset>
+        <p>最後の呼び出しでは、残りの世代だけを評価します。5世代未満なら固定長ループ内の余りを評価せずに飛ばし、予算を超えないようにします。比較する方式では、同じ世代間隔で集計値を取得します。ルール介入案では、有効率が80%未満ならそのまま継続します。80%以上なら、正規化した遺伝子のばらつきが0.05未満の場合は4枠を置換し、それ以外は変異率を変更します。このルールは本比較の前に固定します。</p>
+      </section>
+
+      <section aria-labelledby="review">
+        <h2 id="review">5. 可視化と検証</h2>
+        <fieldset>
+          <legend>5-1. 実験結果とグラフの記録（併用可）</legend>
+          <label><input type="checkbox" name="logging" value="files"><span><strong>ローカルの JSONL + CSV</strong> <span class="recommended">おすすめ</span> — JSONL には分岐、戦略と判断理由、失敗種別を、CSV には候補数、最良・平均変位、有効率、実行時間を記録します。比較時はシードごとの全結果と中央値を並べ、LLM の呼び出し数・トークン数も別に示します。</span></label>
+          <label><input type="checkbox" name="logging" value="langsmith"><span><strong>LangSmith のトレース + Studio</strong> — グラフのノードと分岐を画面で追います。開発サーバーを別途用意し、外部に記録されるデータを確認のうえ利用します。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>5-2. 描画なしの進化と、必要なときの再生</legend>
+          <label><input type="checkbox" name="visualization" value="matplotlib"><span><strong>別コマンドで再生：Matplotlib + Pillow</strong> <span class="recommended">おすすめ</span> — <code>evolve</code> は常に描画なし。<code>replay --show</code> で画面表示、<code>replay --gif</code> でウィンドウを開かずに GIF 保存します。</span></label>
+          <label><input type="checkbox" name="visualization" value="plotly"><span><strong>別コマンドで再生：Plotly HTML</strong> — 計算機に GUI を用意せず、出力した HTML を手元のブラウザで再生する案です。</span></label>
+        </fieldset>
+        <p>進化中は描画ライブラリを読み込まず、各個体の軌跡も保持しません。再生時だけ、保存した遺伝子と設定から同じ物理ステップで軌跡を作り、その個体の位置配列だけを描画側に渡します。再生は探索予算に含めません。</p>
+        <fieldset>
+          <legend>5-3. 自動テスト</legend>
+          <label><input type="checkbox" name="tests" value="pytest"><span><strong>pytest + numpy.testing</strong> <span class="recommended">おすすめ</span> — バネの作用・反作用、空中で接触力がゼロになること、乱数シード固定時の再現性、予算停止、模擬応答による戦略適用と失敗時の復帰を検証します。</span></label>
+          <label><input type="checkbox" name="tests" value="unittest"><span><strong>unittest + numpy.testing</strong> — テスト用の追加依存を避けます。同じ確認項目を標準ライブラリで検証します。</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>5-4. GPU 性能の測り方</legend>
+          <label><input type="checkbox" name="benchmark" value="end-to-end"><span><strong>初回起動と定常計測を分ける</strong> <span class="recommended">おすすめ</span> — 同じ JAX 実装・精度で CPU と GPU を比較します。20・128・512候補の同一入力で、初回コンパイル込みの時間と、ウォームアップ後の候補評価数/秒を測ります。GPU は計測の終点で同期し、世代をまとめる場合と1世代ずつ呼ぶ場合を比べます。</span></label>
+          <label><input type="checkbox" name="benchmark" value="profile"><span><strong>JAX プロファイラで内訳を見る</strong> — GPU 使用率が低い理由や CPU 待ちを切り分けたい場合に追加します。長時間のトレースは通常の実験では無効にします。</span></label>
+        </fieldset>
+        <p class="intro"><strong>初回の完了条件：</strong>GPU 上で固定 GA が候補予算どおりに終了し、集団全体を世代ごとに CPU に転送しないことを確認します。模擬応答で戦略適用と失敗時の復帰を区別でき、保存した個体を再生できたら、実際の LLM を使った比較に進みます。</p>
+      </section>
+      <button type="reset">すべてのチェックを外す</button>
+    </form>
+  </main>
+  <script>
+    // チェック状態をブラウザの localStorage に保存し、再読み込み時に復元する。
+    const storageKey = 'langgraph-first-experiment-selection:' + location.pathname;
+    const form = document.querySelector('form');
+    const boxes = Array.from(form.querySelectorAll('input[type="checkbox"]'));
+
+    function save() {
+      const state = {};
+      for (const box of boxes) {
+        if (box.checked) (state[box.name] ??= []).push(box.value);
+      }
+      try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (_) {}
+    }
+
+    try {
+      const state = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      for (const box of boxes) box.checked = (state[box.name] || []).includes(box.value);
+    } catch (_) {}
+
+    form.addEventListener('change', save);
+    form.addEventListener('reset', () => {
+      try { localStorage.removeItem(storageKey); } catch (_) {}
+      setTimeout(save, 0);
+    });
+  </script>
+</body>
+</html>
