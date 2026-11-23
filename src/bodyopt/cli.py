@@ -14,11 +14,10 @@ import time
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 
 from .creature import CreatureSpec, triangulated_ladder
-from .fitness import FitnessParams, evaluate_gene, rollout_full
+from .fitness import FitnessParams, rollout_full
 from .ga import GAParams, run_ga
 from .io import (
     RECORD_LEVELS,

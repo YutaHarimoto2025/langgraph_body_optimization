@@ -1,7 +1,6 @@
 """物理シミュレータの静的テスト。GPU/CPU どちらでも数秒で終わる規模。"""
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest

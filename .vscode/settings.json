@@ -67,5 +67,12 @@
 
     "editorIndentGuide.background": "#291d21",
     "editorIndentGuide.activeBackground": "#79525d"
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.extraPaths": ["src"],
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning"
   }
 }

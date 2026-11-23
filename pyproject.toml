@@ -23,8 +23,13 @@ module-name = "bodyopt"
 module-root = "src"
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportUnusedFunction = "warning"
+reportUnusedClass = "warning"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -28,7 +28,7 @@
     @media print { :root, .reco, table, thead th, .note, .meta { color-scheme: light; color: #222; background: white; } a { color: #155584; } }
   </style>
 </head>
-<body>
+<body data-persist>
   <h1>実装 review — src/bodyopt 全体</h1>
   <p class="meta">2026-11-23 作成。対象: first goal の初回実装 (src/bodyopt・viewer・tests)。検証: pyright 0 errors・pytest 25 件合格・短い GA run による再現性テスト実施。書式は aisin リポジトリの review 規約に倣い、6 章に計算効率・アルゴリズム・再現性の節を加えた。</p>
 
@@ -53,7 +53,7 @@
       <tr><th>修正案</th><td>meta.json の creature 概要から <code>CreatureSpec</code> を復元する (<code>io.creature_from_summary</code>)。概要に masses・stiffness・muscle_mask を追加し、旧形式 meta にもフォールバック対応。</td></tr>
       <tr><th>影響範囲</th><td>io.creature_summary の保存項目が増える (向後互換は維持)。cmd_replay のみ。</td></tr>
     </table>
-    <p class="checks"><label><input type="checkbox" checked disabled> 修正完了</label> <label><input type="checkbox" checked disabled> 動作確認完了</label></p>
+    <p class="checks"><label><input type="checkbox" checked> 修正完了</label> <label><input type="checkbox" checked> 動作確認完了</label></p>
     <p class="note"><strong>修正完了:</strong> io.creature_from_summary を追加し cli.cmd_replay を切替。pyright・pytest 25 件・<code>replay --generation 9/0</code> の再実行で dx と滞空率が旧実装と一致することを確認した。</p>
   </div>
 
@@ -64,7 +64,7 @@
       <tr><th>問題点</th><td>scan の最終 carry のうち時刻 <code>t_T</code> だけ未使用だった (times は arange で再構築)。可読性の軽微な問題。</td></tr>
       <tr><th>修正案</th><td>アンダースコアで受ける。</td></tr>
     </table>
-    <p class="checks"><label><input type="checkbox" checked disabled> 修正完了</label> <label><input type="checkbox" checked disabled> 動作確認完了</label></p>
+    <p class="checks"><label><input type="checkbox" checked> 修正完了</label> <label><input type="checkbox" checked> 動作確認完了</label></p>
     <p class="note"><strong>修正完了:</strong> pytest 25 件合格で同一挙動を確認。</p>
   </div>
 
@@ -77,7 +77,7 @@
       <tr><th>修正案</th><td>恒久対応は軌跡 JSON に <code>edges</code>・<code>base_pos</code> を同梱し viewer 側の再実装を削除すること。次回のビューア強化 (報告 0001 の todo) で実施する。</td></tr>
       <tr><th>影響範囲</th><td>軌跡 JSON のサイズがわずかに増える。viewer の読込部。</td></tr>
     </table>
-    <p class="checks"><label><input type="checkbox" disabled> 修正完了</label> <label><input type="checkbox" disabled> 動作確認完了</label></p>
+    <p class="checks"><label><input type="checkbox"> 修正完了</label> <label><input type="checkbox"> 動作確認完了</label></p>
     <p class="note"><strong>持ち越し:</strong> 恒久対応は次回のビューア強化と合わせて実施 (報告 0001 の todo「ビューアの強化」と同根)。当面は SPEC の注意書きで運用。</p>
   </div>
 
@@ -131,5 +131,6 @@
     <li><strong>残作業:</strong> R3 (軌跡 JSON への辺同梱) は次回のビューア強化で実施。跳躍解への対処は <a href="../report/0001_first_ga_run.html">報告 0001</a> のとおり利用者判断を待つ。</li>
     <li><strong>最終承認:</strong> 未承認 (R3 を持ち越しているため、承認後に docs/reviews/archive/ へ移動する)。</li>
   </ul>
+  <script src="../open/assets/html-state.js" defer></script>
 </body>
 </html>

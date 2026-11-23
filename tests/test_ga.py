@@ -20,7 +20,6 @@ class Test初期集団:
         n_m = int(spec.muscle_idx.shape[0])
         key = jax.random.PRNGKey(0)
         pop = random_population(key, 32, n_m)
-        lo, hi = gene_bounds(n_m)
         arr = np.asarray(pop)
         assert arr.shape == (32, 2 * n_m)
         assert (arr >= 0.0).all()

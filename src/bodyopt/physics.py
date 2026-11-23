@@ -190,7 +190,7 @@ def rollout(
 
     t0 = jnp.float32(0.0)
     init = (spec.base_pos, jnp.zeros((spec.n_nodes, 2), dtype=jnp.float32), t0)
-    (pos_T, vel_T, _), outs = jax.lax.scan(scan_fn, init, None, length=n_steps)
+    (pos_T, vel_T, t_T), outs = jax.lax.scan(scan_fn, init, None, length=n_steps)
 
     final_obs, _ = observe(pos_T, vel_T, t_T)
     outs = jax.tree.map(lambda s, f: jnp.concatenate([s, f[None]], axis=0), outs, final_obs)
