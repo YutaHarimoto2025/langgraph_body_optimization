@@ -22,6 +22,7 @@
 ```
 docs/
   open/   アイデア・設計メモ（日付 prefix: MMDD_topic_idea.md）
+    assets/html-state.js  HTML の入力状態を保存する共通スクリプト
   agents/ （用途未定）
 .vscode/  エディタ配色設定
 opencode.jsonc  opencode の権限設定
@@ -34,6 +35,16 @@ opencode.jsonc  opencode の権限設定
 - 数式では変数に一貫した記号を割り当てる。例: 位置 `q_i`、質量 `m_i`、エッジ剛性 `k_e`、自然長 `L_e`、収縮振幅 `a_e`、位相 `phi_e`、周波数 `omega_e`、設計変数 `theta`。
 - ファイル名は `MMDD_topic_idea.md` 形式（例: `0912_langgraph_artificial_body_optimization_idea.md`）。
 - 箇条書きは真に並列な列挙に限定し、説明は地の文で書く。
+
+## HTML ドキュメントの操作状態
+
+人間が操作する HTML（チェック、ラジオ、テキスト入力、選択）を作るときは、状態の保存を必須とする。共通スクリプト  docs/open/assets/html-state.js  を読み込めば、`data-persist` を付けた要素の状態がブラウザの localStorage に保存され、再読み込み時に復元される。`file://` で開いた場合も同じように動く。
+
+- 入力の祖先（通常は `form`）に `data-persist` を付ける。無い場合は `form` が対象になる。
+- HTML の末尾に `<script src="assets/html-state.js" defer></script>` を置く。`src` は HTML からの相対パスで書く。
+- reset ボタンは保存内容も消す。状態だけ初期化したい場合はページを再読み込みする。
+- 保存先はブラウザのプロファイルであり、別ブラウザ・別端末・シークレットウィンドウとは共有されない。git にも入らない。
+- 記録をリポジトリに残す必要があるときは、状態を JSON で書き出すボタンを HTML 側に追加する。保存処理を各 HTML に複製しない。
 
 ## 開発方針
 

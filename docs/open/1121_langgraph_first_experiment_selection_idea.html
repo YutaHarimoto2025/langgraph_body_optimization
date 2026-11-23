@@ -46,7 +46,7 @@
 
   <main>
     <p id="instructions">各項目は原則として1案を選びます。「併用可」の項目は複数選べます。比較中はどの項目も複数にチェックできます。「おすすめ」は提案であり、初期状態では未選択です。チェック内容はこのブラウザに自動で保存され、再読み込みしても復元されます（別ファイル・別ブラウザ・別端末とは共有されません）。記録を残す場合は印刷機能で PDF 保存してください。</p>
-    <form aria-describedby="instructions" autocomplete="off">
+    <form aria-describedby="instructions" autocomplete="off" data-persist>
       <section aria-labelledby="environment">
         <h2 id="environment">1. 環境と依存管理</h2>
         <fieldset>
@@ -195,30 +195,6 @@
       <button type="reset">すべてのチェックを外す</button>
     </form>
   </main>
-  <script>
-    // チェック状態をブラウザの localStorage に保存し、再読み込み時に復元する。
-    const storageKey = 'langgraph-first-experiment-selection:' + location.pathname;
-    const form = document.querySelector('form');
-    const boxes = Array.from(form.querySelectorAll('input[type="checkbox"]'));
-
-    function save() {
-      const state = {};
-      for (const box of boxes) {
-        if (box.checked) (state[box.name] ??= []).push(box.value);
-      }
-      try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (_) {}
-    }
-
-    try {
-      const state = JSON.parse(localStorage.getItem(storageKey) || '{}');
-      for (const box of boxes) box.checked = (state[box.name] || []).includes(box.value);
-    } catch (_) {}
-
-    form.addEventListener('change', save);
-    form.addEventListener('reset', () => {
-      try { localStorage.removeItem(storageKey); } catch (_) {}
-      setTimeout(save, 0);
-    });
-  </script>
+  <script src="assets/html-state.js" defer></script>
 </body>
 </html>
