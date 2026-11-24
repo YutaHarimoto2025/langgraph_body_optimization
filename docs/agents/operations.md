@@ -39,3 +39,7 @@ uv run python scripts/make_report_video.py <trajectory.json> docs/report/assets/
 5. 人間が操作する HTML は docs/open/assets/html-state.js で状態を保存する (祖先に data-persist、末尾に script)。
 6. GA の計算は世代ループ内で CPU 同期を入れない。同期は run の最後の 1 回だけ。
 7. 仕様が複雑になったら、本ディレクトリを内容別のサブディレクトリに分割する。AGENTS.md には参照リンクだけを置く。
+8. 参照の書き方 (Ctrl+クリックで開けるようにする):
+   - md では `[@docs/agents/sim/physics.md](../sim/physics.md)` の形にする (表示は @docs 表記のまま)。VS Code の Markdown preview では Ctrl+クリックでエディタタブが開き、既に開いていればそのタブへ移動する。
+   - html では `<a href="../agents/sim/physics.md" target="bodyopt-doc">@docs/agents/sim/physics.md</a>` の形にする。target を固定すると、既に開いているタブがあればそこへ読み込み (ジャンプ)、無ければ新しいタブで開く。
+   - コードブロック・インラインコード・文字列リテラルの中の @docs はリンク化しない。

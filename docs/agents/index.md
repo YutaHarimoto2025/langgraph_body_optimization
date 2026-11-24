@@ -6,13 +6,13 @@
 
 | 変更するもの | 読む文書 |
 |---|---|
-| 身体の形・辺・遺伝子 | @docs/agents/sim/creature.md |
-| 積分法・接触・摩擦・3D 対応・計算構成 | @docs/agents/sim/physics.md |
-| 評価式・無効判定・エネルギー | @docs/agents/fitness.md |
-| GA の演算子・パラメータ・島モデル | @docs/agents/optimizer/ga.md |
-| 記録レベル・再現メタデータ・viewer | @docs/agents/recording.md |
-| コマンド・テスト・report/review の書式・運用 | @docs/agents/operations.md |
-| first goal の範囲・ロードマップ | @docs/agents/overview.md |
+| 身体の形・辺・遺伝子 | [@docs/agents/sim/creature.md](sim/creature.md) |
+| 積分法・接触・摩擦・3D 対応・計算構成 | [@docs/agents/sim/physics.md](sim/physics.md) |
+| 評価式・無効判定・エネルギー | [@docs/agents/fitness.md](fitness.md) |
+| GA の演算子・パラメータ・島モデル | [@docs/agents/optimizer/ga.md](optimizer/ga.md) |
+| 記録レベル・再現メタデータ・viewer | [@docs/agents/recording.md](recording.md) |
+| コマンド・テスト・report/review の書式・運用 | [@docs/agents/operations.md](operations.md) |
+| first goal の範囲・ロードマップ | [@docs/agents/overview.md](overview.md) |
 
 ## 文書一覧
 
