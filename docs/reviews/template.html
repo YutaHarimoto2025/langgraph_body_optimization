@@ -46,7 +46,7 @@
   <h3>A. 報告の作成</h3>
   <ul>
     <li>ファイル名は  docs/reviews/standard_&lt;YYYY-MM-DD&gt;.html  とする。同名があれば _2、_3 を付ける。</li>
-    <li>正本は  docs/agents/SPEC.md 。実装が正本と食い違う場合は、どちらを直すかを修正案に明記する。</li>
+    <li>正本は  docs/agents/index.md 。実装が正本と食い違う場合は、どちらを直すかを修正案に明記する。</li>
     <li>対象は src の実装と、その検証に必要な tests・viewer・params。文献や構想の話は  docs/open/  に置き、review の所見にしない。</li>
     <li>番号はクリティカル C、修正推奨 R で別々に通しで振る。層が変わっても 1 に戻さない。</li>
     <li>層は 5 種類: src / tests / viewer / docs / other。params・resources・スクリプト類は other。修正の中心がある層を 1 つだけ選ぶ。</li>
@@ -69,7 +69,7 @@
     <li>「動作確認完了」が付いた issue は、対応済みとして扱う。未完了の R は checkbox を付けずに残し、次回の報告へ引き継ぐ。</li>
     <li><strong>対応が完了した review は  docs/reviews/archive/  へ移動する。</strong>未完了の R を含む review は移動しない。</li>
     <li>移動したら、ファイル内の script のパスを  ../../open/assets/html-state.js  に直す。移動前の相対パスでは 404 になる。</li>
-    <li>docs/agents/SPEC.md と食い違ったまま残した論点は、7 章の残作業にパス付きで書く。</li>
+    <li>docs/agents/index.md と食い違ったまま残した論点は、7 章の残作業にパス付きで書く。</li>
   </ul>
 
   <h2>1. 総評</h2>
@@ -86,7 +86,7 @@
     <table>
       <tr><th>箇所</th><td><code>&lt;path&gt;:L&lt;行&gt;</code>: <code>&lt;module または class.method&gt;</code> — <code>&lt;コード断片&gt;</code></td></tr>
       <tr><th>問題点</th><td>&lt;起きる事象と、なぜ問題か。再現条件があれば添える&gt;</td></tr>
-      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> &lt;該当節&gt; — &lt;この issue が従うべき指示&gt;</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/index.md</code> &lt;該当節&gt; — &lt;この issue が従うべき指示&gt;</td></tr>
       <tr><th>修正案</th><td>&lt;どの記号をどう変えるかまで書く&gt;</td></tr>
       <tr><th>影響範囲</th><td>&lt;呼び出し元、params、記録形式、テストへの波及。該当なしなら行ごと削除&gt;</td></tr>
       <tr><th>言及箇所</th><td>&lt;正本の TODO やソースコメント。該当なしなら行ごと削除&gt;</td></tr>
@@ -103,7 +103,7 @@
     <table>
       <tr><th>箇所</th><td><code>&lt;path&gt;:L&lt;行&gt;</code>: <code>&lt;module または class.method&gt;</code> — <code>&lt;コード断片&gt;</code></td></tr>
       <tr><th>問題点</th><td>&lt;放置した場合に残る負債・不整合&gt;</td></tr>
-      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> &lt;該当節&gt; — &lt;この issue が従うべき指示&gt;</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/index.md</code> &lt;該当節&gt; — &lt;この issue が従うべき指示&gt;</td></tr>
       <tr><th>修正案</th><td>&lt;どの記号をどう変えるかまで書く&gt;</td></tr>
       <tr><th>影響範囲</th><td>&lt;修正対象の外に及ぶ影響。該当なしなら行ごと削除&gt;</td></tr>
     </table>

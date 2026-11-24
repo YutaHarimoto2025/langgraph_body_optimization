@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>報告 0001｜first goal の固定 GA run と跳躍解の観察</title>
+  <title>報告 2026-11-23｜first goal の固定 GA run と跳躍解の観察</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #232323; color: #ededed; }
     body { max-width: 56rem; margin: auto; padding: 1.5rem 1rem 3rem; line-height: 1.75; }
@@ -29,7 +29,7 @@
 </head>
 <body>
   <header>
-    <h1>報告 0001｜first goal の固定 GA run と跳躍解の観察</h1>
+    <h1>報告 2026-11-23｜first goal の固定 GA run と跳躍解の観察</h1>
     <p class="meta">2026-11-23｜対象: src/bodyopt (初回実装)｜生データ: <a href="../../resources/runs/first_try/">resources/runs/first_try/</a></p>
     <p class="lead">first goal の動作テストとして、固定 GA (10 世代 × 20 個体 × 5 秒) を GPU 上で 1.25 秒で完走させた。GA の探索は機能しているが、評価が「右向き重心変位のみ」のため、<strong>GA が選んだ最良個体は歩行ではなく大跳躍 (滞空率 64%、重心最高 5.8 m) で距離を稼ぐ解だった</strong>。アイデアメモ §4 が予測した reward hacking の初期兆候であり、次の判断 (跳躍への罰則かエネルギー制約か) を迫る結果を得た。</p>
     <nav class="toc" aria-label="目次">
@@ -45,7 +45,7 @@
   <main>
     <section id="purpose">
       <h2>その回の目的</h2>
-      <p>LangGraph・LLM を使わない純粋 GA で「2D 質点・バネ身体の周期制御最適化」が end-to-end で動くことを確認する (docs/agents/SPEC.md §1 の first goal)。合わせて、合意した運用サイクル (静的テスト → 短い GA run による動的テスト → docs 正本化 → 報告) を初めて一巡させる。</p>
+      <p>LangGraph・LLM を使わない純粋 GA で「2D 質点・バネ身体の周期制御最適化」が end-to-end で動くことを確認する (<a href="../agents/overview.md">docs/agents/overview.md</a> の first goal)。合わせて、合意した運用サイクル (静的テスト → 短い GA run による動的テスト → docs 正本化 → 報告) を初めて一巡させる。</p>
     </section>
 
     <section id="feature">
@@ -114,7 +114,7 @@
       <pre><code>viewer/index.html を開き ../resources/runs/first_try/trajectory_gen9_rank0.json を読み込む
 (または trajectory JSON をウィンドウにドラッグ&amp;ドロップ。R キーで正面図に戻る)</code></pre>
       <figure>
-        <video src="assets/anim_gen9.mp4" controls loop muted playsinline preload="metadata"
+        <video src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAqfbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAFb8AAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAACcl0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAFb8AAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAA8AAAAGkAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAABW/AAAEAAABAAAAAAlBbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAAA8AAABTgBVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAAI7G1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAACKxzdGJsAAAAsHN0c2QAAAAAAAAAAQAAAKBhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAA8ABpABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAANmF2Y0MBZAAf/+EAGWdkAB+s2UDwN/nhAAADAAEAAAMAPA8YMZYBAAZo6+GyyLD9+PgAAAAAFGJ0cnQAAAAAAAKo+QACqPkAAAAYc3R0cwAAAAAAAAABAAAApwAAAgAAAAAUc3RzcwAAAAAAAAABAAAAAQAABOhjdHRzAAAAAAAAAJsAAAABAAAEAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAABAAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAgAAAAAAgAAAgAAAAABAAAGAAAAAAEAAAIAAAAAAQAACAAAAAACAAACAAAAAAEAAAQAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAIAAAAAAIAAAIAAAAAAQAACAAAAAACAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAABAAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAgAAAAAAgAAAgAAAAABAAAGAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAABAAAAAABAAAIAAAAAAIAAAIAAAAAAgAABAAAAAABAAAKAAAAAAEAAAQAAAAAAQAAAAAAAAABAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACgAAAAABAAAEAAAAAAEAAAAAAAAAAQAAAgAAAAABAAAEAAAAAAEAAAYAAAAAAQAAAgAAAAABAAAEAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACAAAAAACAAACAAAAAAEAAAYAAAAAAQAAAgAAAAABAAAGAAAAAAEAAAIAAAAAAQAACAAAAAACAAACAAAAAAEAAAoAAAAAAQAABAAAAAABAAAAAAAAAAEAAAIAAAAAAQAACg... (line truncated to 2000 chars)
                width="960" height="420" aria-label="世代9最良個体の跳躍アニメーション。踏切のたびに身体が上がり、弾道で前進する"></video>
         <figcaption>世代 9 最良個体 (seed 0、5 秒、30 fps)。橙の円は接地中の質点、辺の色は張力 (赤ほど張り、青は弛み)。身体は 1 回の踏切で数 m 跳び、放物線で前進する。動画は <code>scripts/make_report_video.py</code> が軌跡 JSON から生成した mp4 (H.264) である。</figcaption>
       </figure>

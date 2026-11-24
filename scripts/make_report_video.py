@@ -13,7 +13,9 @@ mp4 に変換する。物理は 2D のまま、(x, y) を 2D 画像に描く
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -51,6 +53,13 @@ def main() -> None:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--label", default="", help="動画に重ねるラベル")
     ap.add_argument("--y-max", type=float, default=None, help="縦軸の上限 (既定はデータから自動)")
+    ap.add_argument(
+        "--html",
+        type=Path,
+        default=None,
+        help="この HTML 内の src=\"<出力ファイルの相対パス>\" を data URI (base64) に置換する。"
+        "python -m http.server は Range 非対応で <video> が再生できないため、埋め込みを既定とする",
+    )
     args = ap.parse_args()
 
     src = json.loads(args.trajectory.read_text())
@@ -127,6 +136,25 @@ def main() -> None:
         )
     size_kb = args.out.stat().st_size // 1024
     print(f"[video] {args.out} frames={len(idx)} fps={args.fps} {size_kb} KB")
+
+    if args.html is not None:
+        embedded = embed_into_html(args.out, args.html)
+        print(f"[video] {args.html} に data URI として埋め込み ({embedded} 箇所)")
+
+
+def embed_into_html(video_path: Path, html_path: Path) -> int:
+    """HTML の video src (video_path と同名の相対パス) を base64 の data URI に置換する。
+
+    何度実行しても同じ結果になる (data URI は置換対象に含まれない)。
+    """
+    html = html_path.read_text(encoding="utf-8")
+    b64 = base64.b64encode(video_path.read_bytes()).decode("ascii")
+    data_uri = f"data:video/mp4;base64,{b64}"
+    # ファイル名で終わる src のうち data URI でないものだけを置換する
+    pattern = re.compile(r'src="(?!data:)[^"]*' + re.escape(video_path.name) + r'"')
+    html, count = pattern.subn(f'src="{data_uri}"', html)
+    html_path.write_text(html, encoding="utf-8")
+    return count
 
 
 def _edges_for(n_nodes: int) -> list[tuple[int, int]]:

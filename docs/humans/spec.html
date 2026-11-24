@@ -19,6 +19,7 @@
     thead th { background: #3d3d3d; }
     .lead { border-left: .25rem solid #85d6bf; padding: .75rem 1rem; background: #293a36; }
     .meta { color: #c9c9c9; }
+    .note { font-size: .88rem; color: #a6abb1; }
     .toc { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
     .status-pending { color: #e0b685; }
     .status-done { color: #8fbe9f; font-weight: 600; }
@@ -29,7 +30,7 @@
   <header>
     <h1>bodyopt｜人間向け仕様と進捗</h1>
     <p class="meta">現行仕様の正本 (簡潔版)｜2026-11-23 時点</p>
-    <p class="lead">2D の質点・バネ身体の、形態と筋肉制御の最適化実験。first goal は「LangGraph・LLM なしの純粋 GA で、固定形状の身体が周期制御により進歩すること」を確認することです。詳細な実装仕様は <a href="../agents/SPEC.md">docs/agents/SPEC.md</a> を正本とします。</p>
+    <p class="lead">2D の質点・バネ身体の、形態と筋肉制御の最適化実験。first goal は「LangGraph・LLM なしの純粋 GA で、固定形状の身体が周期制御により進歩すること」を確認することです。詳細な実装仕様は <a href="../agents/index.md">docs/agents/index.md</a> を正本とします (各節の「詳細」から該当文書へ)。</p>
     <nav class="toc" aria-label="目次">
       <a href="#model">身体と物理</a>
       <a href="#ga">GA</a>
@@ -43,6 +44,7 @@
   <main>
     <section id="model">
       <h2>身体と物理モデル</h2>
+      <p class="note">詳細: <a href="../agents/sim/creature.md">sim/creature.md</a> (身体・遺伝子) / <a href="../agents/sim/physics.md">sim/physics.md</a> (積分・接触・計算構成)</p>
       <p>身体は 6 質点・9 辺の三角補強ラダー (上下 2 列 × 3 点) です。列間隔 0.5 m、行間隔 0.4 m、全質点 1 kg、バネ剛性 100 N/m。初期形状の辺長がそのままバネの自然長になるため、最初は張りゼロで始まります。</p>
       <p>各辺は自然長を周期的に変える筋肉です。時間積分は半陰的オイラー法 (刻み 5 ms、1 試行 5 秒)。床との接触はめり込みに比例する反力、摩擦は <code>tanh</code> で滑らかにしたクーロン摩擦です。RK4 も比較用に実装してあり、回帰テスト (<code>tests/regression/</code>) で刻みや手法を変えても結論が変わらないことを確認します。</p>
       <p>シミュレータは JAX で書き、集団は <code>vmap</code>、時間は <code>lax.scan</code>、世代も 1 つの JIT にまとめます。世代ループの途中で CPU に結果を取り出さないため、GPU を待たせません。2D で書きつつ、質点座標や接触・摩擦の分離は 3D へそのまま拡張できる形にしています。</p>
@@ -50,6 +52,7 @@
 
     <section id="ga">
       <h2>GA のアルゴリズム</h2>
+      <p class="note">詳細: <a href="../agents/optimizer/ga.md">optimizer/ga.md</a> (演算子・パラメータ・島モデル拡張・再現性の限界)</p>
       <p>遺伝子は筋肉ごとの「振幅 (0〜0.20)」と「位相 (0〜2π)」だけです。周波数は全筋肉共通の 1 Hz で固定し、身体の形状・接続は first goal では変えません。</p>
       <table>
         <thead><tr><th>要素</th><th>設定</th></tr></thead>
@@ -66,11 +69,13 @@
 
     <section id="energy">
       <h2>エネルギーの扱い</h2>
+      <p class="note">詳細: <a href="../agents/fitness.md">fitness.md</a> (評価式・無効判定・駆動仕事の定義)</p>
       <p>筋肉がバネに注入した正の仕事 (駆動仕事) を毎試行で記録します。振幅の上限は常に 0.20 としますが、駆動仕事の総量による予算はオプション (<code>--energy-budget</code>) で、既定は無制限です。first goal では距離と仕事を並べて報告し、予算をどの水準に置くかを後で決めます。</p>
     </section>
 
     <section id="run">
       <h2>実行コマンド</h2>
+      <p class="note">詳細: <a href="../agents/operations.md">operations.md</a> (コマンド・テスト・report と review の書式)</p>
       <pre><code>uv sync                                        # 依存の導入 (JAX + CUDA 13)
 uv run pytest -q                               # 静的テスト
 uv run pytest -q -m regression                 # 積分法の回帰比較
@@ -84,6 +89,7 @@ uv run python -m bodyopt replay --run resources/runs/first_try \
 
     <section id="records">
       <h2>記録のレベル</h2>
+      <p class="note">詳細: <a href="../agents/recording.md">recording.md</a> (記録項目・再現メタデータ・viewer・動画の埋め込み)</p>
       <table>
         <thead><tr><th>レベル</th><th>保存内容</th></tr></thead>
         <tbody>
@@ -102,6 +108,7 @@ uv run python -m bodyopt replay --run resources/runs/first_try \
 
     <section id="progress">
       <h2>進捗</h2>
+      <p class="note">範囲とロードマップ: <a href="../agents/overview.md">overview.md</a></p>
       <table>
         <thead><tr><th>項目</th><th>状態</th></tr></thead>
         <tbody>
@@ -116,7 +123,7 @@ uv run python -m bodyopt replay --run resources/runs/first_try \
           <tr><td>feedback 制御 (脳)</td><td class="status-pending">future work</td></tr>
         </tbody>
       </table>
-      <p>実験のたびの報告は <a href="../report/0001_first_ga_run.html">docs/report/</a> に蓄積します。</p>
+      <p>実験のたびの報告は <a href="../report/2026-11-23_first_ga_run.html">docs/report/</a> に蓄積します。</p>
     </section>
   </main>
 </body>

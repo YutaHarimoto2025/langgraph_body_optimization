@@ -49,7 +49,7 @@
     <table>
       <tr><th>箇所</th><td><code>src/bodyopt/cli.py:80</code>: <code>cmd_replay</code> — <code>spec = creature_from_summary(meta["creature"])</code> (修正後)</td></tr>
       <tr><th>問題点</th><td>旧実装は replay 時に <code>_creature(args)</code> で身体を作り直していたため、実行時の <code>--n-cols</code> 既定値が変わると過去 run の再生が壊れる。記録の再現性 (遺伝子 + commit + params で同じ物理) を損なう。</td></tr>
-      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> §7 —「軌跡は遺伝子 + commit + params で再現できることを前提に」</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/index.md</code> §7 —「軌跡は遺伝子 + commit + params で再現できることを前提に」</td></tr>
       <tr><th>修正案</th><td>meta.json の creature 概要から <code>CreatureSpec</code> を復元する (<code>io.creature_from_summary</code>)。概要に masses・stiffness・muscle_mask を追加し、旧形式 meta にもフォールバック対応。</td></tr>
       <tr><th>影響範囲</th><td>io.creature_summary の保存項目が増える (向後互換は維持)。cmd_replay のみ。</td></tr>
     </table>
@@ -73,12 +73,12 @@
     <table>
       <tr><th>箇所</th><td><code>viewer/index.html:ladderEdges</code> — <code>pairs.push([i, i+1], [nCols+i, nCols+i+1], [i, nCols+i], [i, nCols+i+1])</code></td></tr>
       <tr><th>問題点</th><td>viewer は src/bodyopt/creature.py の辺順序を JS で再実装している。creature.py の接続規則を変えたとき viewer が黙ってずれる。</td></tr>
-      <tr><th>正本</th><td><code>docs/agents/SPEC.md</code> §7 —「creature.py の接続規則を変えたら viewer 側も同じ順序に更新すること」(本 review で追記)</td></tr>
-      <tr><th>修正案</th><td>恒久対応は軌跡 JSON に <code>edges</code>・<code>base_pos</code> を同梱し viewer 側の再実装を削除すること。次回のビューア強化 (報告 0001 の todo) で実施する。</td></tr>
+      <tr><th>正本</th><td><code>docs/agents/index.md</code> §7 —「creature.py の接続規則を変えたら viewer 側も同じ順序に更新すること」(本 review で追記)</td></tr>
+      <tr><th>修正案</th><td>恒久対応は軌跡 JSON に <code>edges</code>・<code>base_pos</code> を同梱し viewer 側の再実装を削除すること。次回のビューア強化 (報告 2026-11-23 の todo) で実施する。</td></tr>
       <tr><th>影響範囲</th><td>軌跡 JSON のサイズがわずかに増える。viewer の読込部。</td></tr>
     </table>
     <p class="checks"><label><input type="checkbox"> 修正完了</label> <label><input type="checkbox"> 動作確認完了</label></p>
-    <p class="note"><strong>持ち越し:</strong> 恒久対応は次回のビューア強化と合わせて実施 (報告 0001 の todo「ビューアの強化」と同根)。当面は SPEC の注意書きで運用。</p>
+    <p class="note"><strong>持ち越し:</strong> 恒久対応は次回のビューア強化と合わせて実施 (報告 2026-11-23 の todo「ビューアの強化」と同根)。当面は SPEC の注意書きで運用。</p>
   </div>
 
   <h2>4. 構成・疎結合・契約の評価</h2>
@@ -113,7 +113,7 @@
     <tr><th>候補</th><th>判断</th></tr>
     <tr><td>エリートの重複排除 (brkga の elite de-dup)</td><td>参考実装にあるが未導入。集団 20・10 世代では best 1.234 が 5 世代連続した後 1.42 に更新しており現状は機能している。停滞が観測されたら導入。</td></tr>
     <tr><td>トーナメント両親が同一個体になる (selfing)</td><td>一様交叉で実質クローンが生じ得る。現状の改善圧力では未問題化。導入は余分なキー消費と引き換えのため、停帯観測時に再評価。</td></tr>
-    <tr><td>跳躍解への罰則・エネルギー制約</td><td><a href="../report/0001_first_ga_run.html">報告 0001</a>の判断事項 (利用者判断)。評価式を変えるため GA 比較方式間での固定条件と併せて決める。</td></tr>
+    <tr><td>跳躍解への罰則・エネルギー制約</td><td><a href="../report/2026-11-23_first_ga_run.html">報告 2026-11-23</a>の判断事項 (利用者判断)。評価式を変えるため GA 比較方式間での固定条件と併せて決める。</td></tr>
   </table>
 
   <h3>6.3 再現性チェック (軽い run)</h3>
@@ -128,7 +128,7 @@
   <h2>7. 補足</h2>
   <ul>
     <li>本 review の対象は first goal の初回実装。LangGraph・LLM は未導入 (合意どおり)。</li>
-    <li><strong>残作業:</strong> R3 (軌跡 JSON への辺同梱) は次回のビューア強化で実施。跳躍解への対処は <a href="../report/0001_first_ga_run.html">報告 0001</a> のとおり利用者判断を待つ。</li>
+    <li><strong>残作業:</strong> R3 (軌跡 JSON への辺同梱) は次回のビューア強化で実施。跳躍解への対処は <a href="../report/2026-11-23_first_ga_run.html">報告 2026-11-23</a> のとおり利用者判断を待つ。</li>
     <li><strong>最終承認:</strong> 未承認 (R3 を持ち越しているため、承認後に docs/reviews/archive/ へ移動する)。</li>
   </ul>
   <script src="../open/assets/html-state.js" defer></script>
