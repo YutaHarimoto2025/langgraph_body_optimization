@@ -84,7 +84,7 @@ function buildPreviewHtml(webview, sourcePath, source) {
         vscode.postMessage({ type: "open", href: a.href });
       }, true);
     })();
-  <\/script>`;
+  \x3c/script>`;
   // <head> に base と橋渡しスクリプトを注入する
   if (/<head[^>]*>/i.test(source)) {
     return source.replace(/<head([^>]*)>/i, (m) => m + baseTag + bridge);

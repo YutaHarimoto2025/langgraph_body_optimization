@@ -17,4 +17,4 @@
 
 - viewer/index.html は three.js で軌跡 JSON を事後再生する (2D 物理を 3D 視点で表示、視点移動・張力色・接触点・重心軌跡)。
 - 注意: viewer の ladderEdges は src/bodyopt/creature.py の辺順序を再実装している。接続規則を変えたら viewer 側も更新する (軌跡 JSON に辺情報を含める改修が望ましい)。
-- 報告 HTML の動画は scripts/make_report_video.py が軌跡 JSON から mp4 (H.264) を生成し、data URI で HTML に埋め込む。python -m http.server は Range 非対応で <video> の src 参照再生が失敗するため、埋め込みを既定とする。
+- 報告 HTML の動画は scripts/make_report_video.py が軌跡 JSON から WebM (VP9) を生成し、data URI で HTML に埋め込む。VP9 は Chromium 組み込みで preview (webview) でも再生できる。H.264 の <video> は preview で再生できないことがあり、APNG では再生・停止・シークができない。python -m http.server は Range 非対応のため、src 参照ではなく data URI 埋め込みを既定とする。
