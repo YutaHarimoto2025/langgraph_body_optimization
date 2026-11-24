@@ -43,3 +43,9 @@ uv run python scripts/make_report_video.py <trajectory.json> docs/report/assets/
    - md では `[@docs/agents/sim/physics.md](../sim/physics.md)` の形にする (表示は @docs 表記のまま)。VS Code の Markdown preview では Ctrl+クリックでエディタタブが開き、既に開いていればそのタブへ移動する。
    - html では `<a href="../agents/sim/physics.md" target="bodyopt-doc">@docs/agents/sim/physics.md</a>` の形にする。target を固定すると、既に開いているタブがあればそこへ読み込み (ジャンプ)、無ければ新しいタブで開く。
    - コードブロック・インラインコード・文字列リテラルの中の @docs はリンク化しない。
+9. VS Code で preview のリンクをエディタタブで開く:
+   - `scripts/install_doclinks.sh` を実行し、VS Code で Reload Window する。ワークスペースの `extensions/doclinks` が `~/.vscode/extensions/bodyopt-doclinks` にリンクされる。
+   - Markdown preview: リンクは設定 `markdown.preview.openMarkdownLinks: inEditor` (拡張の configurationDefaults) でエディタタブに開く。
+   - HTML: エクスプローラで HTML を右クリック →「bodyopt: HTML プレビューを開く」。プレビュー内の .md/.html リンクはエディタタブで開き、既に開いていればそのタブへ移動する。
+   - エディタ本文の @docs/... は DocumentLink として Ctrl+クリックで開ける。
+   - ブラウザで直接開く場合、`target="bodyopt-doc"` の通常クリックは同じタブを再利用する (Ctrl+クリックは新タブ)。

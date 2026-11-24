@@ -1,4 +1,4 @@
-"""報告 HTML へ埋め込むエリート個体の動画 (mp4) を生成する。
+"""報告 HTML へ埋め込むエリート個体のアニメーション (APNG) を生成する。
 
 使い方:
   uv run python scripts/make_report_video.py \
@@ -6,9 +6,10 @@
       docs/report/assets/anim_gen9.mp4 \
       --stride 2 --fps 30 --label "世代9 最良個体"
 
-軌跡 JSON (位置・張力・接触) を Pillow でフレーム描画し、ffmpeg で H.264 の
-mp4 に変換する。物理は 2D のまま、(x, y) を 2D 画像に描く
-(視点移動は viewer/ が担当)。報告側は <video controls loop muted> で埋め込む。
+軌跡 JSON (位置・張力・接触) を Pillow でフレーム描画し、APNG として保存する。
+APNG は <img> でループ再生されるため、VS Code の preview (webview)・ブラウザ・
+サーバーなしの file:// のすべてで表示できる (H.264 の <video> は webview で
+再生できないことがある)。物理は 2D のまま、(x, y) を 2D 画像に描く。
 """
 from __future__ import annotations
 
@@ -16,19 +17,29 @@ import argparse
 import base64
 import json
 import re
-import subprocess
-import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
-WIDTH, HEIGHT = 960, 420
+WIDTH, HEIGHT = 760, 330
 BG = (38, 40, 44)
 GRID = (52, 56, 61)
 GROUND = (138, 144, 153)
 NODE = (232, 236, 239)
 CONTACT = (224, 182, 133)
 TRAIL = (158, 206, 255)
+JP_FONT_CANDIDATES = (
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+)
+
+
+def load_font(size: int = 14) -> ImageFont.ImageFont | ImageFont.FreeTypeFont:
+    """日本語ラベル用のフォント。無ければ既定フォント (ASCII のみ)。"""
+    for path in JP_FONT_CANDIDATES:
+        if Path(path).exists():
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
 
 
 def tension_color(s: float) -> tuple[int, int, int]:
@@ -57,8 +68,8 @@ def main() -> None:
         "--html",
         type=Path,
         default=None,
-        help="この HTML 内の src=\"<出力ファイルの相対パス>\" を data URI (base64) に置換する。"
-        "python -m http.server は Range 非対応で <video> が再生できないため、埋め込みを既定とする",
+        help="この HTML 内の src=\"...<出力ファイル名>\" を data URI (base64) に置換する。"
+        "外部サーバーなしで preview 内に表示するための埋め込み",
     )
     args = ap.parse_args()
 
@@ -76,64 +87,63 @@ def main() -> None:
         sy = HEIGHT - (y / win_h) * HEIGHT
         return int(round(sx)), int(round(sy))
 
-    with tempfile.TemporaryDirectory(dir="/tmp/opencode") as tmp:
-        tmp_dir = Path(tmp)
-        for n, k in enumerate(idx):
-            f = pos[k]
-            com_x = sum(q[0] for q in f) / len(f)
-            cam_x = max(0.0, com_x - win_w * 0.30)
-            img = Image.new("RGB", (WIDTH, HEIGHT), BG)
-            d = ImageDraw.Draw(img)
-            # グリッド (1 m)
-            gx = int(cam_x)
-            while gx <= cam_x + win_w:
-                x0, _ = world(gx, 0, cam_x)
-                d.line([(x0, 0), (x0, HEIGHT)], fill=GRID, width=1)
-                gx += 1
-            gy = 0.0
-            while gy <= win_h:
-                _, y0 = world(0, gy, cam_x)
-                d.line([(0, y0), (WIDTH, y0)], fill=GRID, width=1)
-                gy += 1.0
-            # 地面
-            _, gy0 = world(0, 0, cam_x)
-            d.line([(0, gy0), (WIDTH, gy0)], fill=GROUND, width=3)
-            # 重心軌跡 (直近 60 サンプル)
-            trail = []
-            for j in range(max(0, n - 60), n + 1):
-                fj = pos[idx[j]]
-                trail.append(world(sum(q[0] for q in fj) / len(fj), sum(q[1] for q in fj) / len(fj), cam_x))
-            if len(trail) > 1:
-                d.line(trail, fill=TRAIL, width=2)
-            # 辺 (張力色・太さ)
-            max_t = max(abs(v) for v in tension[k]) or 1.0
-            for e, (a, b) in enumerate(_edges_for(len(f))):
-                p0 = world(f[a][0], f[a][1], cam_x)
-                p1 = world(f[b][0], f[b][1], cam_x)
-                s = max(-1.0, min(1.0, tension[k][e] / max_t))
-                d.line([p0, p1], fill=tension_color(s), width=4 + int(2 * abs(s)))
-            # 接触点と質点
-            for i, q in enumerate(f):
-                cx, cy = world(q[0], q[1], cam_x)
-                if contact[k][i] > 0:
-                    d.ellipse([cx - 9, cy - 9, cx + 9, cy + 9], fill=CONTACT)
-                d.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=NODE)
-            # テキスト
-            d.text((10, 8), f"t = {times[k]:.2f} s   COM dx = {com_x - com0[0]:.3f} m", fill=(201, 205, 210))
-            d.text((10, HEIGHT - 20), f"{args.label}  ({n + 1}/{len(idx)})", fill=(160, 170, 178))
-            img.save(tmp_dir / f"f{n:04d}.png")
+    font = load_font(14)
+    frames: list[Image.Image] = []
+    for n, k in enumerate(idx):
+        f = pos[k]
+        com_x = sum(q[0] for q in f) / len(f)
+        cam_x = max(0.0, com_x - win_w * 0.30)
+        img = Image.new("RGB", (WIDTH, HEIGHT), BG)
+        d = ImageDraw.Draw(img)
+        # グリッド (1 m)
+        gx = int(cam_x)
+        while gx <= cam_x + win_w:
+            x0, _ = world(gx, 0, cam_x)
+            d.line([(x0, 0), (x0, HEIGHT)], fill=GRID, width=1)
+            gx += 1
+        gy = 0.0
+        while gy <= win_h:
+            _, y0 = world(0, gy, cam_x)
+            d.line([(0, y0), (WIDTH, y0)], fill=GRID, width=1)
+            gy += 1.0
+        # 地面
+        _, gy0 = world(0, 0, cam_x)
+        d.line([(0, gy0), (WIDTH, gy0)], fill=GROUND, width=3)
+        # 重心軌跡 (直近 60 サンプル)
+        trail = []
+        for j in range(max(0, n - 60), n + 1):
+            fj = pos[idx[j]]
+            trail.append(world(sum(q[0] for q in fj) / len(fj), sum(q[1] for q in fj) / len(fj), cam_x))
+        if len(trail) > 1:
+            d.line(trail, fill=TRAIL, width=2)
+        # 辺 (張力色・太さ)
+        max_t = max(abs(v) for v in tension[k]) or 1.0
+        for e, (a, b) in enumerate(_edges_for(len(f))):
+            p0 = world(f[a][0], f[a][1], cam_x)
+            p1 = world(f[b][0], f[b][1], cam_x)
+            s = max(-1.0, min(1.0, tension[k][e] / max_t))
+            d.line([p0, p1], fill=tension_color(s), width=4 + int(2 * abs(s)))
+        # 接触点と質点
+        for i, q in enumerate(f):
+            cx, cy = world(q[0], q[1], cam_x)
+            if contact[k][i] > 0:
+                d.ellipse([cx - 9, cy - 9, cx + 9, cy + 9], fill=CONTACT)
+            d.ellipse([cx - 6, cy - 6, cx + 6, cy + 6], fill=NODE)
+        # テキスト
+        d.text((10, 8), f"t = {times[k]:.2f} s   COM dx = {com_x - com0[0]:.3f} m", fill=(201, 205, 210), font=font)
+        d.text((10, HEIGHT - 24), f"{args.label}  ({n + 1}/{len(idx)})", fill=(160, 170, 178), font=font)
+        frames.append(img)
 
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            [
-                "ffmpeg", "-y", "-framerate", str(args.fps),
-                "-i", str(tmp_dir / "f%04d.png"),
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20",
-                "-movflags", "+faststart", str(args.out),
-            ],
-            check=True,
-            capture_output=True,
-        )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    duration_ms = max(1, int(round(1000 / args.fps)))
+    frames[0].save(
+        args.out,
+        save_all=True,
+        append_images=frames[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=True,
+    )
     size_kb = args.out.stat().st_size // 1024
     print(f"[video] {args.out} frames={len(idx)} fps={args.fps} {size_kb} KB")
 
@@ -149,9 +159,14 @@ def embed_into_html(video_path: Path, html_path: Path) -> int:
     """
     html = html_path.read_text(encoding="utf-8")
     b64 = base64.b64encode(video_path.read_bytes()).decode("ascii")
-    data_uri = f"data:video/mp4;base64,{b64}"
+    mime = "image/apng" if video_path.suffix == ".png" else "video/mp4"
+    data_uri = f"data:{mime};base64,{b64}"
     # ファイル名で終わる src のうち data URI でないものだけを置換する
-    pattern = re.compile(r'src="(?!data:)[^"]*' + re.escape(video_path.name) + r'"')
+    mime = "image/apng" if video_path.suffix == ".png" else "video/mp4"
+    # 1) ファイル名で終わる src (未埋め込み) 2) 同種の既存 data URI の両方を置換する
+    pattern = re.compile(
+        r'src="(?!data:)[^"]*' + re.escape(video_path.name) + r'"' + r"|" + r'src="data:' + re.escape(mime) + r';base64,[^"]*"'
+    )
     html, count = pattern.subn(f'src="{data_uri}"', html)
     html_path.write_text(html, encoding="utf-8")
     return count

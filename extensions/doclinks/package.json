@@ -1,0 +1,38 @@
+{
+  "name": "bodyopt-doclinks",
+  "displayName": "bodyopt doclinks",
+  "description": "@docs/... への参照を VS Code のタブで開く (HTML プレビューと Markdown preview)",
+  "version": "0.1.0",
+  "publisher": "bodyopt",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onCommand:doclinks.openPreview"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "doclinks.openPreview",
+        "title": "bodyopt: HTML プレビューを開く (リンクはタブで開く)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "doclinks.openPreview",
+          "when": "resourceExtname == .html",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "doclinks.openPreview",
+          "when": "resourceExtname == .html",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "markdown.preview.openMarkdownLinks": "inEditor"
+    }
+  }
+}
