@@ -1,4 +1,5 @@
 {
+
   "workbench.colorCustomizations": {
     "editor.background": "#1b1215",
     "editor.foreground": "#d8c9cd",
@@ -67,6 +68,13 @@
 
     "editorIndentGuide.background": "#291d21",
     "editorIndentGuide.activeBackground": "#79525d"
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.analysis.extraPaths": ["src"],
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportUnusedImport": "warning",
+    "reportUnusedVariable": "warning"
   },
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.analysis.extraPaths": ["src"],

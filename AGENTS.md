@@ -27,6 +27,8 @@ docs/
   humans/   人間向けの仕様と進捗の正本（html）
   report/   数値実験の報告（html、全項目に言及、新規事項を厚く）
   reviews/  src 実装の review（aisin の規約 + 計算効率・アルゴリズム・再現性）
+    template.html  書式の雛形（複製して使う）
+    archive/       対応が完了した review
 src/        Python パッケージ bodyopt（creature・physics・fitness・ga・io・cli）
 params/     ケース非依存の既定値（default.json）
 resources/  実行ケースごとの生データ（runs/<name>/。上書き・自動削除しない）
@@ -39,8 +41,8 @@ opencode.jsonc  opencode の権限設定
 ## 運用ルール
 
 1. 実装後は「静的テスト → 短い GA run による動的テスト → 合意仕様の docs 正本化」を徹底する。first goal の段階では長い GA を回さない（数分で終わる動作確認まで）。
-2. 新機能や数値実験のたびに  docs/report/ に HTML 報告を書く。項目は「目的・追加機能・実験設定・RAM/VRAM ピークと計算時間・主要結果・分析と先行研究との差異・todo との照合」。全項目を同じ詳細度で書かず、その回で新規なことに詳細を割く。
-3. src の実装 review を定期的に行い  docs/reviews/ に置く（report とは別ファイル）。
+2. 新機能や数値実験のたびに  docs/report/ に HTML 報告を書く。項目は「目的・追加機能・実験設定・RAM/VRAM ピークと計算時間・主要結果・分析と先行研究との差異・todo との照合」。全項目を同じ詳細度で書かず、その回で新規なことに詳細を割く。個体の動きは mp4 (H.264) を `<video controls loop muted playsinline>` で埋め込む (生成は scripts/make_report_video.py)。
+3. src の実装 review を定期的に行い  docs/reviews/ に置く（report とは別ファイル）。書式は  docs/reviews/template.html  を複製する。対応が完了した review は  docs/reviews/archive/  へ移動し、script のパスを  ../../open/assets/html-state.js  に直す。
 4. GA の計算は世代ループ内で CPU 同期（`int()`・`float()`・`np.asarray`・`print`）を入れない。同期は run の最後の 1 回だけ。
 
 ## ドキュメント規約

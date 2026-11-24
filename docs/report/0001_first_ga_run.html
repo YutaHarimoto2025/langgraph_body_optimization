@@ -21,7 +21,7 @@
     .meta { color: #c9c9c9; }
     .warn { border-left: .25rem solid #e0b685; padding: .75rem 1rem; background: #3a352d; }
     figure { margin: 1rem 0; }
-    figure canvas { width: 100%; height: auto; border: 1px solid #888; border-radius: .5rem; background: #26282c; }
+    figure video { width: 100%; height: auto; border: 1px solid #888; border-radius: .5rem; background: #26282c; }
     figcaption { font-size: .85rem; color: #a6abb1; margin-top: .35rem; }
     .toc { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
     @media print { :root, .lead, .warn, table, thead th, .meta { color-scheme: light; color: #222; background: white; } a { color: #155584; } .toc { display: none; } }
@@ -114,10 +114,10 @@
       <pre><code>viewer/index.html を開き ../resources/runs/first_try/trajectory_gen9_rank0.json を読み込む
 (または trajectory JSON をウィンドウにドラッグ&amp;ドロップ。R キーで正面図に戻る)</code></pre>
       <figure>
-        <canvas data-anim="anim_gen9" width="960" height="340" aria-label="世代9最良個体の跳躍アニメーション。踏切のたびに身体が上がり、弾道で前進する"></canvas>
-        <figcaption>世代 9 最良個体 (seed 0、5 秒、30 fps に間引き)。橙の円は接地中の質点、辺の色は張力 (赤ほど張り、青は弛み)。身体は 1 回の踏切で数 m 跳び、放物線で前進する。図は <code>scripts/make_report_anim.py</code> が軌跡 JSON から生成した自己完結スクリプトで描画する。</figcaption>
+        <video src="assets/anim_gen9.mp4" controls loop muted playsinline preload="metadata"
+               width="960" height="420" aria-label="世代9最良個体の跳躍アニメーション。踏切のたびに身体が上がり、弾道で前進する"></video>
+        <figcaption>世代 9 最良個体 (seed 0、5 秒、30 fps)。橙の円は接地中の質点、辺の色は張力 (赤ほど張り、青は弛み)。身体は 1 回の踏切で数 m 跳び、放物線で前進する。動画は <code>scripts/make_report_video.py</code> が軌跡 JSON から生成した mp4 (H.264) である。</figcaption>
       </figure>
-      <script src="assets/anim_gen9.js"></script>
       <table>
         <thead><tr><th>指標</th><th>世代 0 の最良</th><th>世代 9 の最良</th></tr></thead>
         <tbody>
