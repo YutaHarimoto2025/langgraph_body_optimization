@@ -13,12 +13,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .creature import MAX_AMPLITUDE, CreatureSpec
+from .creature import CreatureSpec
 from .fitness import EvalStats, FitnessParams, evaluate_population
+from .models import FREQ_HI, FREQ_LO, get_model
 from .physics import SimParams
 
-#: 遺伝子の意味づけ: [0, E_m) が振幅、[E_m, 2E_m) が位相。
-AMP_HI = MAX_AMPLITUDE
+#: 遺伝子の意味づけ: [0, E_m) 振幅 (モデル依存)、[E_m, 2E_m) 周波数 [Hz]、[2E_m, 3E_m) 位相 [rad]。
 PHASE_HI = 2.0 * jnp.pi
 
 
@@ -30,24 +30,36 @@ class GAParams:
     crossover_rate: float = 0.8
     mutation_rate: float = 0.10  # 遺伝子ごとの突然変異確率
     mutation_sigma_scale: float = 0.05  # 範囲に対する sigma の割合
+    immigration_rate: float = 0.20  # 次世代のうちランダム個体で置き換える割合
     seed: int = 0
 
 
-def gene_bounds(n_muscle: int) -> tuple[jax.Array, jax.Array]:
-    """遺伝子の下限・上限 [2*E_m]。"""
-    lo = jnp.zeros(2 * n_muscle, dtype=jnp.float32)
+def gene_bounds(n_muscle: int, muscle_model: str) -> tuple[jax.Array, jax.Array]:
+    """遺伝子の下限・上限 [3*E_m]。振幅の上限はモデル (gene_hi) に従う。"""
+    lo = jnp.concatenate(
+        [
+            jnp.zeros(n_muscle),
+            jnp.full(n_muscle, FREQ_LO),
+            jnp.zeros(n_muscle),
+        ]
+    ).astype(jnp.float32)
     hi = jnp.concatenate(
-        [jnp.full(n_muscle, AMP_HI), jnp.full(n_muscle, PHASE_HI)]
+        [
+            jnp.full(n_muscle, get_model(muscle_model).gene_hi),
+            jnp.full(n_muscle, FREQ_HI),
+            jnp.full(n_muscle, PHASE_HI),
+        ]
     ).astype(jnp.float32)
     return lo, hi
 
 
-def random_population(key: jax.Array, n: int, n_muscle: int) -> jax.Array:
-    """一様サンプリングで初期集団 [n, 2*E_m]。振幅は [0, AMP_HI]、位相は [0, 2π)。"""
-    k1, k2 = jax.random.split(key)
-    amps = jax.random.uniform(k1, (n, n_muscle), minval=0.0, maxval=AMP_HI)
-    phases = jax.random.uniform(k2, (n, n_muscle), minval=0.0, maxval=PHASE_HI)
-    return jnp.concatenate([amps, phases], axis=1)
+def random_population(key: jax.Array, n: int, n_muscle: int, amp_hi: float) -> jax.Array:
+    """一様サンプリングで初期集団 [n, 3*E_m]。振幅 [0, amp_hi]、周波数 [FREQ_LO, FREQ_HI]、位相 [0, 2π)。"""
+    k1, k2, k3 = jax.random.split(key, 3)
+    amps = jax.random.uniform(k1, (n, n_muscle), minval=0.0, maxval=amp_hi)
+    freqs = jax.random.uniform(k2, (n, n_muscle), minval=FREQ_LO, maxval=FREQ_HI)
+    phases = jax.random.uniform(k3, (n, n_muscle), minval=0.0, maxval=PHASE_HI)
+    return jnp.concatenate([amps, freqs, phases], axis=1)
 
 
 def _tournament_parent(
@@ -61,11 +73,33 @@ def _tournament_parent(
 
 
 def _clip_gene(genes: jax.Array, lo: jax.Array, hi: jax.Array) -> jax.Array:
-    """位相は周期折返し、振幅は範囲内にクリップ。"""
-    n_m = lo.shape[0] // 2
+    """振幅・周波数は範囲内にクリップし、位相は周期折返しする。"""
+    n_m = lo.shape[0] // 3
     amp = jnp.clip(genes[..., :n_m], lo[:n_m], hi[:n_m])
-    phase = jnp.mod(genes[..., n_m:], PHASE_HI)
-    return jnp.concatenate([amp, phase], axis=-1)
+    freq = jnp.clip(genes[..., n_m : 2 * n_m], lo[n_m : 2 * n_m], hi[n_m : 2 * n_m])
+    phase = jnp.mod(genes[..., 2 * n_m :], PHASE_HI)
+    return jnp.concatenate([amp, freq, phase], axis=-1)
+
+
+def inject_worst(
+    pop: jax.Array,  # [P, L]
+    fit: jax.Array,  # [P] 現世代の適応度
+    key: jax.Array,
+    n_imm: int,
+    amp_hi: float,
+) -> jax.Array:
+    """適応度の下位 n_imm 個体をランダム個体で置き換える (移民)。
+
+    置換後の個体は次世代で評価される。この世代の選択には使わない前提で、
+    適応度は置換前の値 (下位) のまま残す。
+    """
+    n_pop, L = pop.shape
+    n_imm = min(n_imm, n_pop)
+    if n_imm <= 0:
+        return pop
+    idx = jnp.argsort(fit)[:n_imm]
+    imm = random_population(key, n_imm, L // 3, amp_hi)
+    return pop.at[idx].set(imm)
 
 
 def evolve_population(
@@ -120,16 +154,21 @@ def run_ga(
     戻り値: stats (numpy), final_pop, history (每世代の集団・適応度)。
     """
     n_m = int(spec.muscle_idx.shape[0])
-    lo, hi = gene_bounds(n_m)
+    model = get_model(sim_p.muscle_model)
+    lo, hi = gene_bounds(n_m, sim_p.muscle_model)
 
     key = jax.random.PRNGKey(gp.seed)
     key, k_init = jax.random.split(key)
-    pop0 = random_population(k_init, gp.pop_size, n_m)
+    pop0 = random_population(k_init, gp.pop_size, n_m, model.gene_hi)
+
+    n_imm = int(round(gp.pop_size * gp.immigration_rate))
 
     def gen_loop(carry, _):
         pop, key = carry
         stats: EvalStats = evaluate_population(pop, spec, sim_p, fit_p)
-        pop_next, key_next = evolve_population(pop, stats.score, key, gp, lo, hi)
+        key, k_imm = jax.random.split(key)
+        pop_inj = inject_worst(pop, stats.score, k_imm, n_imm, model.gene_hi)
+        pop_next, key_next = evolve_population(pop_inj, stats.score, key, gp, lo, hi)
         return (pop_next, key_next), (stats, pop)
 
     (final_pop, _), (stats_all, pops_all) = jax.lax.scan(

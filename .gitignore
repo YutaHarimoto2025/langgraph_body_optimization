@@ -3,3 +3,13 @@ __pycache__/
 .venv/
 .pytest_cache/
 .yomiyasu/
+
+# ビルド生成物・キャッシュ
+dist/
+build/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+
+# 実行の生データ (上書き・自動削除しない。残す run は git add -f で個別に追加)
+resources/

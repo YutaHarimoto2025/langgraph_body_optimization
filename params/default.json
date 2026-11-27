@@ -1,1 +1,36 @@
-{"sim": {"gravity": 9.81, "dt": 0.005, "episode_seconds": 5.0, "k_contact": 2000.0, "c_contact": 89.44, "mu_friction": 0.7, "friction_vel_eps": 0.05, "omega": 6.283185307179586, "integrator": "semi_implicit_euler"}, "fitness": {"max_penetration": 0.1, "energy_budget": null}, "ga": {"pop_size": 20, "n_elite": 2, "tournament_k": 3, "crossover_rate": 0.8, "mutation_rate": 0.1, "mutation_sigma_scale": 0.05, "seed": 0}}
+{
+  "sim": {
+    "gravity": 9.81,
+    "dt": 0.0025,
+    "episode_seconds": 5,
+    "k_contact": 20000,
+    "c_contact": 282.84,
+    "mu_friction": 0.7,
+    "friction_vel_eps": 0.05,
+    "muscle_model": "active_force",
+    "edge_damping_ratio": 0.1,
+    "integrator": "semi_implicit_euler"
+  },
+  "creature": {
+    "n_cols": 3,
+    "col_spacing": 0.5,
+    "row_spacing": 0.4,
+    "bottom_clearance": 0.05,
+    "mass": 1.0,
+    "stiffness": 500.0
+  },
+  "fitness": {
+    "max_penetration": 0.1,
+    "energy_budget": null
+  },
+  "ga": {
+    "pop_size": 100,
+    "n_elite": 2,
+    "tournament_k": 3,
+    "crossover_rate": 0.8,
+    "mutation_rate": 0.1,
+    "mutation_sigma_scale": 0.05,
+    "immigration_rate": 0.2,
+    "seed": 0
+  }
+}

@@ -29,7 +29,7 @@
 <body>
   <header>
     <h1>bodyopt｜人間向け仕様と進捗</h1>
-    <p class="meta">現行仕様の正本 (簡潔版)｜2026-11-23 時点</p>
+    <p class="meta">現行仕様の正本 (簡潔版)｜2026-11-27 時点</p>
     <p class="lead">2D の質点・バネ身体の、形態と筋肉制御の最適化実験。first goal は「LangGraph・LLM なしの純粋 GA で、固定形状の身体が周期制御により進歩すること」を確認することです。詳細な実装仕様は <a href="../agents/index.md" target="bodyopt-doc">@docs/agents/index.md</a> を正本とします (各節の「詳細」から該当文書へ)。</p>
     <nav class="toc" aria-label="目次">
       <a href="#model">身体と物理</a>
@@ -45,22 +45,23 @@
     <section id="model">
       <h2>身体と物理モデル</h2>
       <p class="note">詳細: <a href="../agents/sim/creature.md" target="bodyopt-doc">@docs/agents/sim/creature.md</a> (身体・遺伝子) / <a href="../agents/sim/physics.md" target="bodyopt-doc">@docs/agents/sim/physics.md</a> (積分・接触・計算構成)</p>
-      <p>身体は 6 質点・9 辺の三角補強ラダー (上下 2 列 × 3 点) です。列間隔 0.5 m、行間隔 0.4 m、全質点 1 kg、バネ剛性 100 N/m。初期形状の辺長がそのままバネの自然長になるため、最初は張りゼロで始まります。</p>
-      <p>各辺は自然長を周期的に変える筋肉です。時間積分は半陰的オイラー法 (刻み 5 ms、1 試行 5 秒)。床との接触はめり込みに比例する反力、摩擦は <code>tanh</code> で滑らかにしたクーロン摩擦です。RK4 も比較用に実装してあり、回帰テスト (<code>tests/regression/</code>) で刻みや手法を変えても結論が変わらないことを確認します。</p>
+      <p>身体は 6 質点・11 辺の両対角ラダー (上下 2 列 × 3 点、各セルに両方向の対角) です。列間隔 0.5 m、行間隔 0.4 m、全質点 1 kg、バネ剛性 500 N/m。初期形状の辺長がそのままバネの自然長になるため、最初は張りゼロで始まります。この剛性では重力による圧縮は辺長の 5% 程度 (上段は 0.45 → 0.37 m) で、無駆動でも形は保たれます。</p>
+      <p>各辺は受動バネ・能動収縮力・軸方向の粘性減衰 (減衰比 0.10) の並列要素です。能動収縮力は 0〜100 N・0.1〜1 Hz で周期的に変化し、辺を縮める向きにだけ働きます (モデルは <code>params/default.json</code> の <code>sim.muscle_model</code> で切り替え)。重力は 9.81 m/s² を下向きに加えます。時間積分は半陰的オイラー法 (刻み 2.5 ms、1 試行 5 秒)。床との接触はめり込みに比例する反力、摩擦は <code>tanh</code> で滑らかにしたクーロン摩擦です。RK4 も比較用に実装してあり、回帰テスト (<code>tests/regression/</code>) で刻みや手法を変えても結論が変わらないことを確認します。</p>
       <p>シミュレータは JAX で書き、集団は <code>vmap</code>、時間は <code>lax.scan</code>、世代も 1 つの JIT にまとめます。世代ループの途中で CPU に結果を取り出さないため、GPU を待たせません。2D で書きつつ、質点座標や接触・摩擦の分離は 3D へそのまま拡張できる形にしています。</p>
     </section>
 
     <section id="ga">
       <h2>GA のアルゴリズム</h2>
       <p class="note">詳細: <a href="../agents/optimizer/ga.md" target="bodyopt-doc">@docs/agents/optimizer/ga.md</a> (演算子・パラメータ・島モデル拡張・再現性の限界)</p>
-      <p>遺伝子は筋肉ごとの「振幅 (0〜0.20)」と「位相 (0〜2π)」だけです。周波数は全筋肉共通の 1 Hz で固定し、身体の形状・接続は first goal では変えません。</p>
+      <p>遺伝子は筋肉ごとの「振幅 (能動張力 0〜100 N)」「周波数 (0.1〜1 Hz)」「位相 (0〜2π)」です。身体の形状・接続は first goal では変えません。</p>
       <table>
         <thead><tr><th>要素</th><th>設定</th></tr></thead>
         <tbody>
-          <tr><td>集団サイズ</td><td>20 (エリート 2 を継承)</td></tr>
+          <tr><td>集団サイズ</td><td>100 (エリート 2 を継承)</td></tr>
           <tr><td>選択</td><td>トーナメント (k = 3)</td></tr>
           <tr><td>交叉</td><td>一様交叉 (遺伝子単位のスイッチ確率 0.8)</td></tr>
           <tr><td>突然変異</td><td>遺伝子ごとに 10%、ガウス摂動 (σ = 範囲の 5%)</td></tr>
+          <tr><td>移民</td><td>毎世代、適応度の下位 20% をランダム個体で置換</td></tr>
           <tr><td>評価</td><td>5 秒後の重心の右向き変位のみ</td></tr>
         </tbody>
       </table>
@@ -70,21 +71,30 @@
     <section id="energy">
       <h2>エネルギーの扱い</h2>
       <p class="note">詳細: <a href="../agents/fitness.md" target="bodyopt-doc">@docs/agents/fitness.md</a> (評価式・無効判定・駆動仕事の定義)</p>
-      <p>筋肉がバネに注入した正の仕事 (駆動仕事) を毎試行で記録します。振幅の上限は常に 0.20 としますが、駆動仕事の総量による予算はオプション (<code>--energy-budget</code>) で、既定は無制限です。first goal では距離と仕事を並べて報告し、予算をどの水準に置くかを後で決めます。</p>
+      <p>筋肉が身体に注入した正の仕事 (駆動仕事) を毎試行で記録します。能動張力の上限は 100 N としますが、駆動仕事の総量による予算はオプション (<code>--energy-budget</code>) で、既定は無制限です。first goal では距離と仕事を並べて報告し、予算をどの水準に置くかを後で決めます。</p>
+      <p>有効個体は、位置・速度が有限で、最大めり込みが 0.10 m 未満、エネルギー予算を設定した場合は駆動仕事が予算以下である個体です。無効個体のスコアは -1e6 で、有効個体より常に下位に置きます。</p>
     </section>
 
     <section id="run">
       <h2>実行コマンド</h2>
       <p class="note">詳細: <a href="../agents/operations.md" target="bodyopt-doc">@docs/agents/operations.md</a> (コマンド・テスト・report と review の書式)</p>
+      <p>依存を導入し、テストを段階的に実行します。</p>
       <pre><code>uv sync                                        # 依存の導入 (JAX + CUDA 13)
 uv run pytest -q                               # 静的テスト
 uv run pytest -q -m regression                 # 積分法の回帰比較
-uv run pytest -q -m slow                        # 再現性 (短い GA run)
-uv run python -m bodyopt evolve --generations 10 --seed 0 \
-    --record population --out resources/runs/first_try
-uv run python -m bodyopt replay --run resources/runs/first_try \
-    --generation 9 --rank 0</code></pre>
-      <p><code>evolve</code> は描画なしで GA を回して <code>resources/runs/</code> に保存します。<code>replay</code> は保存した個体を同じ物理コードで再計算し、軌跡 JSON を出力します (three.js ビューアで再生)。first goal では長い GA は回さず、数分で終わる動作確認までを検証範囲とします。</p>
+uv run pytest -q -m slow                       # 再現性 (短い GA run)</code></pre>
+      <p>GA を回して保存します。</p>
+      <pre><code>uv run python -m bodyopt evolve --generations 10 --seed 0 \
+    --record summary --out resources/runs/first_try</code></pre>
+      <p>保存した個体を再ロールアウトします。<code>--rank</code> の既定は 0 (世代内の最良個体) です。</p>
+      <pre><code>uv run python -m bodyopt replay --run resources/runs/first_try \
+    --generation 9</code></pre>
+      <p>世代統計を HTML にし、結果のばらつきを確認します。</p>
+      <pre><code>uv run python -m bodyopt stats-html --run resources/runs/first_try
+uv run python -m bodyopt chaos --run resources/runs/first_try --repeats 20</code></pre>
+      <p><code>evolve</code> は描画なしで GA を回して <code>resources/runs/</code> に保存します。<code>replay</code> は保存した個体を同じ物理コードで再計算し、軌跡 JSON を出力します (three.js ビューアで再生)。<code>stats-html</code> は stats.json から同じディレクトリに stats.html を作り、評価スコアの収束 (p10–p90 の帯つき)・遺伝子の種類ごとの σ (上位 1%・10%・全個体)・有効率・駆動仕事 (最良・平均) を世代ごとに表示します。将来の LangGraph エージェントの判断ログは、stats.json の <code>decisions</code> か同じディレクトリの decisions.json に置くと図へ縦線と表で入ります。</p>
+      <p>新しい実験設定 (パラメータ・身体・物理・評価式) で run を回したら、結果を採用する前に <code>chaos</code> で最良個体を複数回シミュレーションします。距離の幅が max(5 mm, 平均の 1%) を超えるとカオスが結果に効いているとみなし、dt を細かくする・減衰を見直す・設定間の比較を平均と分布で行う、のいずれかで対処します。</p>
+      <p>first goal では長い GA は回さず、数分で終わる動作確認までを検証範囲とします。</p>
     </section>
 
     <section id="records">
@@ -94,16 +104,16 @@ uv run python -m bodyopt replay --run resources/runs/first_try \
         <thead><tr><th>レベル</th><th>保存内容</th></tr></thead>
         <tbody>
           <tr><td><code>summary</code></td><td>世代統計と各世代の最良遺伝子、再現メタデータ (commit hash・seed・全パラメータ・実行環境)</td></tr>
-          <tr><td><code>population</code></td><td>上記 + 全世代・全個体の遺伝子とスコア。軌跡は遺伝子と commit から再現可能</td></tr>
-          <tr><td><code>full</code></td><td>上記 + 最良個体の完全ロールアウト (位置・速度・張力・接触・駆動仕事率の全フレーム)</td></tr>
+          <tr><td><code>full</code></td><td>上記 + 各世代の全個体の遺伝子とスコア。推定ディスク量が 1 GB を超える場合は実行前に確認する</td></tr>
         </tbody>
       </table>
-      <p>分析用の記録は大切に残します。実行ごとにディレクトリを分け、上書き・自動削除はしません。</p>
+      <p>stats.json には遺伝子の種類 (振幅・周波数・位相) ごとの σ を、上位 1%・10%・全個体の 3 群について記録します。σ は選択群の同種の全筋肉・全次元をまとめた標準偏差です。スコアと距離の分布 (p10・p50・p90・標準偏差)、駆動仕事の平均も保存します。これらは保存時に集団から計算するため、集団を保存しない summary 記録でも stats.html をフル表示できます。旧形式の run には無く復元もできません。分析用の記録は大切に残します。実行ごとにディレクトリを分け、上書き・自動削除はしません。</p>
+      <p>replay は population.npz があれば任意の <code>--rank</code> を再生できます。summary 記録でも、各世代の最良遺伝子 (<code>--rank 0</code>) に限り再生できます。</p>
     </section>
 
     <section id="langgraph">
       <h2>LangGraph の構造</h2>
-      <p><span class="status-pending">未導入</span> first goal では LangGraph・LLM を使いません。固定 GA が基準となり、導入後は「数世代ごとの集計 → 停滞判定 → 診断 → 戦略適用」の分岐を LangGraph に載せ、その構造をこの節に追記します。</p>
+      <p><span class="status-pending">未導入</span> first goal では LangGraph・LLM を使いません。固定 GA が基準となり、導入後は「数世代ごとの集計 → 停滞判定 → 診断 → 戦略適用」の分岐を LangGraph に載せ、その構造をこの節に追記します。判断の内容と世代は stats.json の <code>decisions</code> に追記し、<code>stats-html</code> で世代統計の上に縦線と表として表示します。</p>
     </section>
 
     <section id="progress">
@@ -117,6 +127,8 @@ uv run python -m bodyopt replay --run resources/runs/first_try \
           <tr><td>固定 GA (jit + scan の世代ループ)</td><td class="status-done">実装済み</td></tr>
           <tr><td>静的テスト・回帰テスト・再現性テスト</td><td class="status-done">実装済み</td></tr>
           <tr><td>数分の GA run と記録・再生</td><td class="status-done">実行済み (docs/report/0001)</td></tr>
+          <tr><td>両対角 11 辺での GA run (500 世代 × 100 個体)</td><td class="status-done">実行済み (resources/runs/006、最良 1.96 m)</td></tr>
+          <tr><td>粘性減衰による安定化 (ζ=0.10)</td><td class="status-done">実行済み (resources/runs/008、同一遺伝子の再現誤差 0.7 mm)</td></tr>
           <tr><td>three.js ビューア (軌跡再生)</td><td class="status-done">実装済み (viewer/)</td></tr>
           <tr><td>形状探索 (初期座標を遺伝子に追加)</td><td class="status-pending">first goal 達成後</td></tr>
           <tr><td>LangGraph + LLM 介入の比較</td><td class="status-pending">first goal 達成後</td></tr>

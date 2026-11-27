@@ -6,10 +6,6 @@ from dataclasses import dataclass, field
 import jax
 import jax.numpy as jnp
 
-#: 筋肉駆動の振幅上限 (自然長に対する割合)。常に課すハード上限。
-MAX_AMPLITUDE = 0.20
-
-
 @dataclass(frozen=True)
 class CreatureSpec:
     """1 個体分の身体。質点・エッジの接続は固定で、GA は制御遺伝子のみ探索する。"""
@@ -42,7 +38,7 @@ def triangulated_ladder(
     row_spacing: float = 0.4,
     bottom_clearance: float = 0.05,
     mass: float = 1.0,
-    stiffness: float = 100.0,
+    stiffness: float = 500.0,
     muscle_all: bool = True,
 ) -> CreatureSpec:
     """上下 2 列 × n_cols の三角補強ラダー。
@@ -62,6 +58,7 @@ def triangulated_ladder(
         pairs.append((n_cols + i, n_cols + i + 1))  # 上列横
         pairs.append((i, n_cols + i))  # 縦
         pairs.append((i, n_cols + i + 1))  # 対角 (昇り)
+        pairs.append((i + 1, n_cols + i))  # 対角 (降り)
     pairs.append((n_cols - 1, n_cols + n_cols - 1))  # 最後の縦
     edges = jnp.array(pairs, dtype=jnp.int32)
 

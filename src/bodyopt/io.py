@@ -1,10 +1,9 @@
 """実行の記録と再現メタデータ。resources/runs/<name>/ に実行単位で保存する。
 
 記録レベル (合意):
-- summary:  世代統計 + 各世代の最良遺伝子
-- population: summary + 全世代の集団 (遺伝子・スコア・有効フラグ)。
-              軌跡は遺伝子 + commit + params で再現可能。
-- full:     population + 最良個体の完全ロールアウト生データ。
+- summary:  世代統計 + 各世代の最良遺伝子 (既定)
+- full:     summary + 各世代の集団 (遺伝子・スコア・付随統計)。
+              軌跡は replay で必要なときに再生成する。
 """
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ from .fitness import FitnessParams
 from .ga import GAParams
 from .physics import SimParams
 
-RECORD_LEVELS = ("summary", "population", "full")
+RECORD_LEVELS = ("summary", "full")
 
 
 def _git_state() -> dict[str, Any]:
@@ -126,6 +125,51 @@ def creature_from_summary(c: dict[str, Any]) -> CreatureSpec:
     )
 
 
+#: 遺伝子ブロック (振幅・周波数・位相) と、σ を出す選択群 (上位 1%・10%・全個体)。
+_GENE_TYPES = (("amplitude", 0), ("frequency", 1), ("phase", 2))
+_GENE_GROUPS = (("top1", 0.01), ("top10", 0.10), ("all", 1.0))
+
+
+def _row_distribution(
+    values: np.ndarray, mask: np.ndarray, quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+) -> dict[str, list[float | None]]:
+    """世代ごとに、mask された値の分位点と標準偏差を出す。空の世代は None。"""
+    keys = [f"p{int(q * 100)}" for q in quantiles] + ["std"]
+    out: dict[str, list[float | None]] = {k: [] for k in keys}
+    for gi in range(values.shape[0]):
+        v = values[gi][mask[gi]]
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            for k in keys:
+                out[k].append(None)
+            continue
+        for q, k in zip(quantiles, keys):
+            out[k].append(round(float(np.quantile(v, q)), 6))
+        out["std"].append(round(float(v.std()), 6))
+    return out
+
+
+def _gene_sigma(pop: np.ndarray, scores: np.ndarray) -> dict[str, dict[str, list[float]]]:
+    """遺伝子の種類ごとに、選択群×全エッジをまとめた標準偏差を世代ごとに出す。
+
+    スコア降順で上位 1%・10%・全個体を選び、その群の振幅 (または周波数・位相) の
+    全筋肉ぶんの値をまとめて np.std する。上位 1% が 1 個体のときは、その個体の
+    エッジ間のばらつきになる。無効個体も順位どおり含める。
+    """
+    n_gen, n_pop, length = pop.shape
+    n_m = length // 3
+    out = {name: {group: [] for group, _ in _GENE_GROUPS} for name, _ in _GENE_TYPES}
+    for gi in range(n_gen):
+        order = np.argsort(scores[gi])[::-1]
+        for group, frac in _GENE_GROUPS:
+            k = max(1, int(np.ceil(frac * n_pop)))
+            idx = order[:k]
+            for name, block in _GENE_TYPES:
+                vals = pop[gi][idx, block * n_m : (block + 1) * n_m]
+                out[name][group].append(round(float(vals.std()), 5))
+    return out
+
+
 def creature_summary(spec) -> dict[str, Any]:
     return {
         "name": spec.name,
@@ -164,6 +208,18 @@ def save_run(
     # 世代統計 + 各世代の最良遺伝子 (summary 相当)
     best_idx = np.argmax(stats.score, axis=1)
     gen_arange = np.arange(n_generations)
+    # 遺伝子の種類ごとの σ (選択群×全エッジ)。summary 記録でも保存時には集団がある。
+    gene_sigma = _gene_sigma(
+        np.asarray(result["populations"], dtype=np.float64),
+        np.asarray(stats.score, dtype=np.float64),
+    )
+    # 集団を保存しない summary でも HTML を完全に描けるよう、分布統計も保存時に作る。
+    valid = np.asarray(stats.valid, dtype=bool)
+    score_dist = _row_distribution(np.asarray(stats.score, dtype=np.float64), valid)
+    distance_dist = _row_distribution(np.asarray(stats.distance, dtype=np.float64), valid)
+    energy_dist = _row_distribution(
+        np.asarray(stats.drive_energy, dtype=np.float64), np.ones_like(valid), (0.5, 0.9)
+    )
     gen_summary = {
         "n_generations": n_generations,
         "per_generation": {
@@ -172,7 +228,13 @@ def save_run(
             "valid_rate": stats.valid.mean(axis=1).round(4).tolist(),
             "best_distance": stats.distance.max(axis=1).round(6).tolist(),
             "mean_distance": stats.distance.mean(axis=1).round(6).tolist(),
+            "n_valid": valid.sum(axis=1).astype(int).tolist(),
+            "score_dist": score_dist,
+            "distance_dist": distance_dist,
+            "energy_dist": energy_dist,
+            "gene_sigma": gene_sigma,
             "best_energy": stats.drive_energy[gen_arange, best_idx].round(4).tolist(),
+            "mean_energy": stats.drive_energy.mean(axis=1).round(4).tolist(),
             "best_gene": [
                 result["populations"][g][best_idx[g]].round(6).tolist()
                 for g in range(n_generations)
@@ -183,7 +245,7 @@ def save_run(
         json.dumps(gen_summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    if record_level in ("population", "full"):
+    if record_level == "full":
         np.savez_compressed(
             out_dir / "population.npz",
             genes=result["populations"].astype(np.float32),
@@ -200,7 +262,7 @@ def save_run(
 def save_trajectory(
     out_dir: Path, traj, gene: np.ndarray, label: str
 ) -> Path:
-    """full レベル・replay 用の生ロールアウト。数値は 4 桁に丸めて軽量化。"""
+    """replay 用の生ロールアウト。数値は 4 桁に丸めて軽量化。"""
     path = out_dir / f"trajectory_{label}.json"
     payload = {
         "label": label,

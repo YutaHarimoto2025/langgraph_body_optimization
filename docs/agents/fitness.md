@@ -6,12 +6,16 @@ $$f = x_{\mathrm{COM}}(T) - x_{\mathrm{COM}}(0), \quad x_{\mathrm{COM}}(t) = \fr
 - 無効個体のスコアは INVALID_SCORE = -1e6 (有効個体より常に下位)。距離の罰則への混合はしない。
 - 駆動仕事 (エネルギー消費の代理指標、常に記録する):
 
-$$E_{\mathrm{drive}} = \int_0^T \sum_{e \in M} \max\!\left(0,\ -F_e(t)\, L_e\, a_e\, \omega \cos(\omega t + \phi_e)\right) dt$$
+$$E_{\mathrm{drive}} = \int_0^T \sum_{e \in M} P_e(t)\, dt, \qquad
+P_e = \begin{cases}
+\max(0,\ -F_e^{A}\,\dot L_e) & (\texttt{active\_force}) \\
+\max(0,\ -T_e\, L_e\, a_e\, \omega_e \cos(\omega_e t+\phi_e)) & (\texttt{rest\_length})
+\end{cases}$$
 
-張った筋肉をさらに縮めるときだけ正の仕事と数え、回生は数えない。energy_budget (None = 無制限) を設定した場合だけ無効判定に使う。first goal は無制限で走らせ、E_drive を距離と並べて報告する。
+筋肉が縮みながら引くときだけ正の仕事と数え、回生は数えない。モデルごとの定義は [@docs/agents/sim/physics.md](sim/physics.md) を参照。energy_budget (None = 無制限) を設定した場合だけ無効判定に使う。first goal は無制限で走らせ、E_drive を距離と並べて報告する。
 
 EvalStats は vmap 出力に使うため pytree として登録する。分析用の付随統計 (distance・drive_energy・max_penetration・contact_rate) は GA の選択に使わず、記録と診断にだけ使う。
 
 ## 既知の失敗モード
 
-変位のみの評価では「跳んで飛ぶ」解が最適になる (報告 2026-11-23: 滞空率 64%、重心最高 5.8 m)。対処 (滞空率罰則・エネルギー予算・物理調整) は利用者判断待ち。評価式を変える場合は、比較方式間で同じ式に固定する。
+変位のみの評価では「跳んで飛ぶ」解が最適になる (報告 2026-11-23: 滞空率 64%、重心最高 5.8 m。ただしこの run は重力未適用)。対処 (滞空率罰則・エネルギー予算・物理調整) は利用者判断待ち。評価式を変える場合は、比較方式間で同じ式に固定する。

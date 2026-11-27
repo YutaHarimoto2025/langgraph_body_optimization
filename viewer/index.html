@@ -14,9 +14,10 @@
     h2 { font-size: .9rem; margin: 1.2rem 0 .5rem; color: #c9cdd2; border-bottom: 1px solid #3a3d42; padding-bottom: .3rem; }
     button { font: inherit; padding: .35rem .8rem; cursor: pointer; color: #ededed; background: #303338; border: 1px solid #565b63; border-radius: .3rem; }
     button:hover, button:focus-visible { background: #3a3e45; }
+    button:disabled { opacity: .5; cursor: progress; }
     :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
     input[type="range"] { width: 100%; accent-color: #85d6bf; }
-    input[type="number"], input[type="file"] { color-scheme: dark; }
+    input.txt { background: #303338; border: 1px solid #565b63; border-radius: .3rem; color: #ededed; padding: .3rem .5rem; font: inherit; }
     label { display: block; margin: .45rem 0 .15rem; font-size: .85rem; color: #c9cdd2; }
     .row { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
     .val { font-family: ui-monospace, monospace; font-size: .85rem; color: #9eceff; }
@@ -25,12 +26,20 @@
     th { background: #2a2d31; font-weight: 600; }
     .note { font-size: .8rem; color: #a6abb1; }
     .err { color: #e08d85; }
-    #drop { border: 1px dashed #565b63; border-radius: .4rem; padding: .6rem; text-align: center; font-size: .85rem; color: #a6abb1; margin-top: .3rem; }
+    .apiState { display: flex; align-items: center; gap: .4rem; margin: .55rem 0 0; font-size: .8rem; color: #a6abb1; }
+    .apiState .dot { width: .5rem; height: .5rem; border-radius: 50%; background: #6b7078; flex: none; }
+    .apiState.ok { color: #a3ecd7; }
+    .apiState.ok .dot { background: #5fd3a6; box-shadow: 0 0 5px #5fd3a6aa; }
+    .apiState.busy { color: #e6c98a; }
+    .apiState.busy .dot { background: #e0b685; animation: pulse 1s ease-in-out infinite; }
+    .apiState.err { color: #e08d85; }
+    .apiState.err .dot { background: #e08d85; }
+    @keyframes pulse { 50% { opacity: .35; } }
     .badge { display: inline-block; font-size: .75rem; background: #293a36; color: #a3ecd7; border-radius: .3rem; padding: .05rem .4rem; }
   </style>
   <script type="importmap">
-    { "imports": { "three": "https://unpkg.com/three@0.186.0/build/three.module.js",
-                   "three/addons/": "https://unpkg.com/three@0.186.0/examples/jsm/" } }
+    { "imports": { "three": "./vendor/three.module.js",
+                   "three/addons/": "./vendor/addons/" } }
   </script>
 </head>
 <body>
@@ -38,11 +47,22 @@
   <aside id="panel" data-persist>
     <h1>bodyopt 軌跡ビューア <span class="badge">2D sim / 3D view</span></h1>
 
-    <h2>軌跡の読み込み</h2>
-    <div id="drop">resources/runs/&lt;name&gt;/trajectory_*.json をドラッグ&amp;ドロップ、または選択<br>
-      (0.0.0.0:8000 経由ならパス直接入力も可)</div>
-    <div class="row"><input type="file" id="file" accept=".json"></div>
-    <div class="row"><input type="text" id="url" placeholder="trajectory JSON のパス (例: ../resources/runs/first_try/trajectory_gen9_rank0.json)" style="flex:1; background:#303338; border:1px solid #565b63; border-radius:.3rem; color:#ededed; padding:.3rem .5rem"><button id="loadUrl">読込</button></div>
+    <h2>replay で読み込む</h2>
+    <div class="row">
+      <label style="margin:0">ケース <input type="text" id="caseName" list="caseList" placeholder="008" class="txt" style="width:4.5rem"></label>
+      <datalist id="caseList"></datalist>
+      <label style="margin:0">gen <input type="text" id="genSpec" placeholder="1,100,10" class="txt" style="width:6.5rem"></label>
+    </div>
+    <div class="row">
+      <label style="margin:0">rank <input type="text" id="rankSpec" placeholder="1,3" class="txt" style="width:4.5rem"></label>
+      <button id="loadReplay">読込</button>
+      <button id="clearAll">全削除</button>
+    </div>
+    <p class="note">gen/rank は「開始,終了,間隔」(開始のみでも可)。rank は 1 = 最良。replay 結果は一時ディレクトリに置き、個体は y 方向に等間隔で積み上げます。</p>
+    <p class="apiState" id="replayStatus"><span class="dot"></span><span id="replayStatusText">未接続</span></p>
+
+    <h2>軌跡 JSON のパス</h2>
+    <div class="row"><input type="text" id="url" class="txt" placeholder="resources/runs/&lt;name&gt;/trajectory_*.json" style="flex:1"><button id="loadUrl">読込</button></div>
     <p class="note" id="status">未読み込み</p>
 
     <h2>再生</h2>
@@ -60,10 +80,11 @@
       <label style="margin:0"><input type="checkbox" id="showContact" checked> 接触点</label>
     </div>
 
-    <h2>その時刻の状態</h2>
+    <h2>その時刻の状態 <span class="note" id="statTarget"></span></h2>
     <table>
       <tr><th>重心 x</th><td class="val" id="comX">-</td></tr>
       <tr><th>重心 y</th><td class="val" id="comY">-</td></tr>
+      <tr><th>距離 (後端, t=0 比)</th><td class="val" id="distX">-</td></tr>
       <tr><th>接触質点数</th><td class="val" id="nContact">-</td></tr>
       <tr><th>駆動仕事 (累積)</th><td class="val" id="energy">-</td></tr>
     </table>
@@ -71,15 +92,48 @@
     <h2>個体情報</h2>
     <table>
       <tr><th>label</th><td id="pLabel">-</td></tr>
+      <tr><th>最大距離 (後端)</th><td id="maxDist">-</td></tr>
       <tr><th>フレーム数</th><td id="pFrames">-</td></tr>
       <tr><th>dt</th><td id="pDt">-</td></tr>
     </table>
-    <p class="note">ドラッグ=回転、ホイール=ズーム、右ドラッグ=パン。正面図はカメラをリセット (R キー)。</p>
+    <h2>遺伝子 (エッジ別)</h2>
+    <label style="margin:.5rem 0"><input type="checkbox" id="showEdgeIds"> エッジ番号を3Dに表示</label>
+    <div id="geneChartWrap" style="overflow-x:auto; overflow-y:hidden; max-width:100%">
+      <canvas id="geneChart" width="360" height="330"></canvas>
+    </div>
   </aside>
 
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    // 灰色の床に白い格子線を描く。5 m タイルの外周を太線、内側の 1 m 線を細線にする
+    const FLOOR_CELL = 1.0, FLOOR_MAJOR = 5;
+    function gridTexture() {
+      const pxPerM = 204.8, size = pxPerM * FLOOR_MAJOR; // 5 m = 1024 px
+      const minor = 2, major = 5;
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const g = c.getContext("2d");
+      g.fillStyle = "#6e7278"; g.fillRect(0, 0, size, size);
+      g.fillStyle = "#ffffff";
+      // 外周 (5 m 線) はタイル境界に重なるので、隣のタイルの左/上辺が線を継ぐ
+      g.fillRect(0, 0, size, major); g.fillRect(0, 0, major, size);
+      for (let k = 1; k < FLOOR_MAJOR / FLOOR_CELL; k++) {
+        const x = Math.round(k * FLOOR_CELL * pxPerM);
+        g.fillRect(x - minor / 2, 0, minor, size); g.fillRect(0, x - minor / 2, size, minor);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return tex;
+    }
+
+    // 個体の配置: 1 個目は (5, 0, 1)、以降は z を 1 m ずつ奥へ
+    const X_OFFSET = 5;
+    const Z_START = 1;
+    const Z_SPACING = 1.0;
 
     // ---------- シーン ----------
     const stage = document.getElementById("stage");
@@ -91,6 +145,8 @@
     const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 200);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    // 右ドラッグ=回転、ホイール=ズーム、中ボタン (=ホイール) ドラッグ=平行移動
+    controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     controls.target.set(1.0, 0.4, 0);
     function resize() {
       const w = stage.clientWidth, h = stage.clientHeight;
@@ -99,163 +155,734 @@
       camera.updateProjectionMatrix();
     }
     addEventListener("resize", resize);
-    function frontView() {
-      camera.position.set(1.0, 0.8, 4.5);
-      controls.target.set(1.0, 0.4, 0);
+    // z 方向の並びが見えるよう、正面から少し回り込んだ視点を既定にする
+    const VIEW_DIR = new THREE.Vector3(0.45, 0.35, 1).normalize();
+    function placeCamera(target, dist) {
+      camera.position.copy(target).addScaledVector(VIEW_DIR, dist);
+      controls.target.copy(target);
       controls.update();
+    }
+    function frontView() {
+      placeCamera(new THREE.Vector3(X_OFFSET + 0.5, 0.5, Z_START), 7.0);
     }
     frontView();
     addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") frontView(); });
 
-    scene.add(new THREE.GridHelper(12, 24, 0x3a3d42, 0x2a2d31)); // y=0 床 (グリッド)
+    // y=0 の床。1 m の細線と 5 m の太線を引いた白い格子 (不透明)
+    const FLOOR_SIZE = 40;
+    const floorTex = gridTexture();
+    floorTex.repeat.set(FLOOR_SIZE / FLOOR_MAJOR, FLOOR_SIZE / FLOOR_MAJOR);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(FLOOR_SIZE, FLOOR_SIZE),
+      new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1, metalness: 0 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
     key.position.set(3, 6, 4);
     scene.add(key);
 
-    const comLine = new THREE.Line(
-      new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x9eceff, transparent: true, opacity: 0.8 })
-    );
-    scene.add(comLine);
+    // ---------- 着地エフェクト ----------
+    // 床 (y=0) に接した瞬間、接触点から広がって消えるリングを出す
+    const IMPACT_LIFE = 0.45, IMPACT_POOL = 48;
+    // スプライトは常にカメラを向くので、正面図でも床板の真上でもリングが見える
+    const impactTex = (() => {
+      const size = 64, c = document.createElement("canvas");
+      c.width = c.height = size;
+      const g = c.getContext("2d");
+      g.strokeStyle = "#ffffff"; g.lineWidth = 8;
+      g.beginPath(); g.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2); g.stroke();
+      return new THREE.CanvasTexture(c);
+    })();
+    const impacts = [];
+    for (let i = 0; i < IMPACT_POOL; i++) {
+      const m = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: impactTex, color: 0xffa64d, transparent: true, opacity: 0, depthWrite: false,
+      }));
+      m.visible = false;
+      scene.add(m);
+      impacts.push({ mesh: m, t: Infinity });
+    }
+    let impactCursor = 0;
+    function spawnImpact(x, z) {
+      const e = impacts[impactCursor++ % impacts.length];
+      e.t = 0;
+      e.mesh.position.set(x, 0.03, z);
+      e.mesh.scale.set(0.07, 0.07, 1);
+      e.mesh.visible = true;
+    }
+    function stepImpacts(dt) {
+      for (const e of impacts) {
+        if (e.t >= IMPACT_LIFE) continue;
+        e.t += dt;
+        const s = Math.min(1, e.t / IMPACT_LIFE);
+        const k = 0.07 + s * 0.33;
+        e.mesh.scale.set(k, k, 1);
+        e.mesh.material.opacity = 0.85 * (1 - s) ** 2;
+        if (s >= 1) e.mesh.visible = false;
+      }
+    }
 
     // ---------- 状態 ----------
-    let traj = null, playing = false, frame = 0, lastT = null, acc = 0;
-    const groups = { nodes: [], edges: [], contacts: [] };
+    const LABEL_X = -1.05;   // ラベルの右端を置く xy 面上の x (x < -1)
+    const LABEL_DY = 0.62;   // ラベルの高さ [m]
+    const individuals = [];  // 読み込んだ軌跡 (1 個体 = 1 グループ)
+    let selected = null, tNow = 0, playing = false, lastT = null, lastTick = null;
+    let serverRoot = null;   // サーバー配信時のリポジトリルート (絶対パス解決用)
+    let apiBase = "";        // replay API のベース URL (空なら同一オリジン)
+    // VS Code プレビューは vscode-webview:// で開くため、同一オリジンに API が無い。
+    // 既定ポートの bodyopt viewer に cross-origin で繋ぐ。
+    const API_FALLBACK = "http://127.0.0.1:8765";
+
+    function apiUrl(path) { return apiBase + path; }
     const el = id => document.getElementById(id);
     const status = el("status");
+    const replayStatus = el("replayStatus");
+    const replayStatusText = el("replayStatusText");
 
     function setStatus(msg, isErr = false) { status.textContent = msg; status.className = isErr ? "err" : "note"; }
-
-    function clearCreature() {
-      for (const g of [...groups.nodes, ...groups.edges, ...groups.contacts]) { scene.remove(g); g.geometry?.dispose?.(); (g.material ?? g.forEach)?.(); }
-      groups.nodes = []; groups.edges = []; groups.contacts = [];
+    // tone: "ok" (接続) / "busy" (実行中) / "err" / "info"。detail はツールチップに出す。
+    function setReplayStatus(msg, tone = "info", detail = "") {
+      replayStatusText.textContent = msg;
+      replayStatus.className = "apiState " + tone;
+      replayStatus.title = detail;
     }
 
-    function buildCreature(t) {
-      const n = t.pos[0].length, e = t.spring_force[0].length;
-      const nodeGeo = new THREE.SphereGeometry(0.05, 20, 16);
-      for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(nodeGeo, new THREE.MeshStandardMaterial({ color: 0xd8dde3, roughness: 0.4 }));
-        scene.add(m); groups.nodes.push(m);
-      }
-      for (let j = 0; j < e; j++) {
-        const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-        const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x85d6bf, linewidth: 2 }));
-        scene.add(line); groups.edges.push(line);
-      }
-      const cGeo = new THREE.SphereGeometry(0.035, 12, 10);
-      for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(cGeo, new THREE.MeshBasicMaterial({ color: 0xe0b685 }));
-        m.visible = false;
-        scene.add(m); groups.contacts.push(m);
-      }
-      // 重心軌跡
-      const pts = t.pos.map(f => { let x = 0, y = 0; for (const p of f) { x += p[0]; y += p[1]; } return new THREE.Vector3(x / n, y / n, 0); });
-      comLine.geometry.setFromPoints(pts);
-      el("pFrames").textContent = String(t.pos.length);
-      el("pDt").textContent = t.times.length > 1 ? (t.times[1] - t.times[0]).toFixed(4) + " s" : "-";
-      el("slider").max = String(t.pos.length - 1);
-    }
+    let tailX0 = 0;  // 初期フレームの最後端 (最小 x) の位置
 
-    function setFrame(k) {
-      if (!traj) return;
-      frame = Math.max(0, Math.min(traj.pos.length - 1, k));
-      const f = traj.pos[frame];
-      for (let i = 0; i < f.length; i++) {
-        groups.nodes[i].position.set(f[i][0], f[i][1], 0);
-        const contact = traj.contact_force[frame][i] > 0;
-        groups.contacts[i].position.set(f[i][0], f[i][1], 0.001);
-        groups.contacts[i].visible = el("showContact").checked && contact;
-      }
-      // 辺: 張力で色 (弛み=青 → 張り=赤) と接続位置を更新
-      const maxT = Math.max(...traj.spring_force.map(fr => Math.max(...fr.map(Math.abs))), 1e-9);
-      for (let j = 0; j < groups.edges.length; j++) {
-        const [a, b] = EDGES[j];
-        const p = [traj.pos[frame][a], traj.pos[frame][b]];
-        groups.edges[j].geometry.setFromPoints([new THREE.Vector3(p[0][0], p[0][1], 0), new THREE.Vector3(p[1][0], p[1][1], 0)]);
-        const s = THREE.MathUtils.clamp(traj.spring_force[frame][j] / maxT, -1, 1);
-        const col = s >= 0 ? new THREE.Color().setHSL(0.45 - 0.45 * s, 0.75, 0.55) : new THREE.Color().setHSL(0.6, 0.6, 0.5);
-        groups.edges[j].material.color = col;
-      }
-      // 統計
-      let cx = 0, cy = 0, nc = 0;
-      for (const p of f) { cx += p[0]; cy += p[1]; }
-      cx /= f.length; cy /= f.length;
-      for (const c of traj.contact_force[frame]) if (c > 0) nc++;
-      let energy = 0;
-      for (let k2 = 0; k2 < frame; k2++) energy += traj.drive_power[k2].reduce((a, b) => a + Math.max(0, b), 0);
-      const dt = traj.times.length > 1 ? traj.times[1] - traj.times[0] : 0;
-      el("tLabel").textContent = (traj.times[frame] ?? 0).toFixed(3) + " s";
-      el("comX").textContent = cx.toFixed(4) + " m";
-      el("comY").textContent = cy.toFixed(4) + " m";
-      el("nContact").textContent = String(nc);
-      el("energy").textContent = (energy * dt).toFixed(3) + " J";
-      el("slider").value = String(frame);
+    // 最後端 = そのフレームで最小 x の質点。身体サイズに依存しない距離の基準。
+    function tailX(frame) {
+      let m = Infinity;
+      for (const q of frame) if (q[0] < m) m = q[0];
+      return m;
     }
 
     // EDGES は軌跡 JSON に含まれていないので、bodyopt のラダーと同じ規則で復元
     function ladderEdges(nCols) {
       const pairs = [];
       for (let i = 0; i < nCols - 1; i++) {
-        pairs.push([i, i + 1], [nCols + i, nCols + i + 1], [i, nCols + i], [i, nCols + i + 1]);
+        pairs.push([i, i + 1], [nCols + i, nCols + i + 1], [i, nCols + i], [i, nCols + i + 1], [i + 1, nCols + i]);
       }
       pairs.push([nCols - 1, 2 * nCols - 1]);
-      if (nCols > 2) { const mid = Math.floor(nCols / 2); pairs.push([nCols + mid, mid]); }
       return pairs;
     }
-    let EDGES = [];
 
-    function loadTraj(t) {
-      clearCreature();
-      traj = t;
-      const nCols = t.pos[0].length / 2;
-      EDGES = ladderEdges(Math.round(nCols));
-      buildCreature(t);
-      el("pLabel").textContent = t.label ?? "-";
-      setStatus(`読み込み完了: ${t.pos.length} フレーム × ${t.pos[0].length} 質点 × ${EDGES.length} 辺`);
-      setFrame(0);
+    // 自然長=白灰、圧縮=赤、伸長=青。ひずみ ±30% で色が飽和する
+    const STRAIN_FULL = 0.3;
+    const EDGE_RADIUS = 0.01;  // 質点球 (半径 0.05) の 1/5
+    const UP = new THREE.Vector3(0, 1, 0);
+    const _edgeDir = new THREE.Vector3();
+    const REST_COLOR = new THREE.Color(0xc3c8ce);
+    const COMPRESS_COLOR = new THREE.Color(0xe0544a);
+    const STRETCH_COLOR = new THREE.Color(0x5b9bff);
+    const _edgeColor = new THREE.Color();
+    function strainColor(s) {
+      return _edgeColor.copy(REST_COLOR).lerp(s < 0 ? COMPRESS_COLOR : STRETCH_COLOR, Math.abs(s));
     }
 
+    function createIndividual(traj, meta) {
+      return {
+        traj, meta,
+        title: meta && meta.gen !== undefined
+          ? `${meta.case} · gen${meta.gen} · rank${meta.rank}`
+          : (meta ? meta.case : (traj.label ?? "individual")),
+        lines: meta
+          ? [meta.case, meta.gen !== undefined ? `gen${meta.gen} · rank${meta.rank}` : (traj.label ?? "")]
+          : [traj.label ?? "individual"],
+        detail: meta && typeof meta.score === "number"
+          ? `score=${meta.score} distance=${meta.distance} m` : "",
+        nodes: [], rods: [], contacts: [], edgeLabels: [], labelLeft: 0, maxPosX: 0,
+        group: null, comLine: null, textMesh: null, deleteMesh: null,
+        edges: [], dt: 0.0025, tailX0: 0, maxDist: "-", energyCum: [0],
+        frame: 0, lastFrame: -2, prevContact: [],
+      };
+    }
+
+    function buildCreature(ind) {
+      const t = ind.traj;
+      const n = t.pos[0].length;
+      ind.tailX0 = tailX(t.pos[0]);
+      let maxX = -Infinity, maxPosX = -Infinity;
+      for (const f of t.pos) {
+        maxX = Math.max(maxX, tailX(f));
+        for (const q of f) if (q[0] > maxPosX) maxPosX = q[0];
+      }
+      ind.maxPosX = maxPosX;
+      ind.maxDist = (maxX - ind.tailX0).toFixed(4) + " m";
+      ind.dt = t.times.length > 1 && t.times[1] > t.times[0] ? t.times[1] - t.times[0] : 0.0025;
+      // 駆動仕事の累積を先に作る (毎フレーム和を取り直さない)
+      ind.energyCum = [0];
+      let acc = 0;
+      for (const row of t.drive_power) {
+        let s = 0;
+        for (const v of row) s += Math.max(0, v);
+        acc += s * ind.dt;
+        ind.energyCum.push(acc);
+      }
+
+      const group = new THREE.Group();
+      group.position.set(X_OFFSET, 0, Z_START + (individuals.length - 1) * Z_SPACING);
+      scene.add(group);
+      ind.group = group;
+      ind.edges = ladderEdges(Math.round(n / 2));
+
+      const nodeGeo = new THREE.SphereGeometry(0.05, 20, 16);
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(nodeGeo, new THREE.MeshStandardMaterial({ color: 0xd8dde3, roughness: 0.4 }));
+        group.add(m); ind.nodes.push(m);
+      }
+      // 辺は円柱。WebGL で LineBasicMaterial.linewidth は効かないため、太さを実寸で持たせる
+      const edgeGeo = new THREE.CylinderGeometry(EDGE_RADIUS, EDGE_RADIUS, 1, 8, 1, true);
+      for (let j = 0; j < ind.edges.length; j++) {
+        const rod = new THREE.Mesh(edgeGeo, new THREE.MeshBasicMaterial({ color: 0xc3c8ce }));
+        group.add(rod); ind.rods.push(rod);
+      }
+      // エッジ番号 (3D 上の中点ラベル)
+      for (let j = 0; j < ind.edges.length; j++) {
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 64;
+        const cg = cv.getContext("2d");
+        cg.fillStyle = "#232323"; cg.fillRect(0, 0, 64, 64);
+        cg.fillStyle = "#ededed";
+        cg.font = "bold 38px sans-serif";
+        cg.textAlign = "center"; cg.textBaseline = "middle";
+        cg.fillText(String(j), 32, 34);
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false,
+        }));
+        sp.scale.set(0.09, 0.09, 1);
+        sp.visible = el("showEdgeIds").checked;
+        group.add(sp);
+        ind.edgeLabels.push(sp);
+      }
+      const cGeo = new THREE.SphereGeometry(0.035, 12, 10);
+      for (let i = 0; i < n; i++) {
+        const m = new THREE.Mesh(cGeo, new THREE.MeshBasicMaterial({ color: 0xe0b685 }));
+        m.visible = false;
+        group.add(m); ind.contacts.push(m);
+      }
+      // 重心軌跡
+      const pts = t.pos.map(f => {
+        let x = 0, y = 0;
+        for (const p of f) { x += p[0]; y += p[1]; }
+        return new THREE.Vector3(x / f.length, y / f.length, 0);
+      });
+      ind.comLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: 0x9eceff, transparent: true, opacity: 0.8 })
+      );
+      ind.comLine.visible = el("showCom").checked;
+      group.add(ind.comLine);
+
+      const nRest = t.rest_lengths?.[0]?.length ?? ind.edges.length;
+      return nRest === ind.edges.length ? "" : ` (辺数が不一致: JSON ${nRest} / 復元 ${ind.edges.length})`;
+    }
+
+    // ラベルは xy 面上の板ポリゴンに焼く。スプライトと違い視点を回すと一緒に回る。
+    const LABEL_M = 0.26;    // ラベル 2 行分の高さ [m]
+    const BUTTON_M = 0.16;   // 削除ボタンの一辺 [m]
+    const LABEL_GAP = 0.05;
+    const LABEL_FONT = 48;
+    const LABEL_PAD = 10;
+
+    function makeLabelTexture(lines) {
+      const font = `600 ${LABEL_FONT}px system-ui, sans-serif`;
+      const lineH = Math.round(LABEL_FONT * 1.15);
+      const c = document.createElement("canvas");
+      let g = c.getContext("2d");
+      g.font = font;
+      const textW = Math.max(...lines.map(t => g.measureText(t).width));
+      c.width = Math.ceil(textW) + LABEL_PAD * 2;
+      c.height = lineH * lines.length + LABEL_PAD * 2;
+      const w = c.width, h = c.height;
+      g = c.getContext("2d");
+      g.font = font;
+      g.textBaseline = "middle";
+      // 細い黒輪郭 + 白文字
+      g.lineWidth = 3;
+      g.strokeStyle = "#000";
+      g.fillStyle = "#fff";
+      lines.forEach((t, i) => {
+        const y = LABEL_PAD + lineH * (i + 0.5);
+        g.strokeText(t, LABEL_PAD, y);
+        g.fillText(t, LABEL_PAD, y);
+      });
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return { texture: tex, aspect: w / h };
+    }
+
+    function makeDeleteTexture() {
+      const size = 96, c = document.createElement("canvas");
+      c.width = c.height = size;
+      const g = c.getContext("2d");
+      g.fillStyle = "rgba(40, 43, 48, .85)";
+      g.fillRect(2, 2, size - 4, size - 4);
+      g.lineWidth = 4; g.strokeStyle = "#000";
+      g.strokeRect(2, 2, size - 4, size - 4);
+      g.font = "700 64px system-ui, sans-serif";
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.lineWidth = 4;
+      g.strokeText("×", size / 2, size / 2 + 2);
+      g.fillStyle = "#fff";
+      g.fillText("×", size / 2, size / 2 + 2);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return tex;
+    }
+
+    function createLabel(ind) {
+      const { texture, aspect } = makeLabelTexture(ind.lines);
+      const w = LABEL_M * aspect;
+      // 右端を LABEL_X に揃え、左へ伸ばす。削除ボタンは文字の左。
+      const text = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, LABEL_M),
+        new THREE.MeshBasicMaterial({
+          map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      const textCx = LABEL_X - w / 2;
+      text.position.set(textCx, LABEL_DY, 0.02);
+      text.userData = { ind, kind: "text" };
+      if (ind.detail) text.name = ind.detail;
+
+      const btn = new THREE.Mesh(
+        new THREE.PlaneGeometry(BUTTON_M, BUTTON_M),
+        new THREE.MeshBasicMaterial({
+          map: makeDeleteTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        })
+      );
+      const btnCx = textCx - w / 2 - LABEL_GAP - BUTTON_M / 2;
+      btn.position.set(btnCx, LABEL_DY, 0.021);
+      btn.userData = { ind, kind: "delete" };
+      ind.labelLeft = btnCx - BUTTON_M / 2;
+
+      ind.group.add(text, btn);
+      ind.textMesh = text;
+      ind.deleteMesh = btn;
+    }
+
+    function updateIndividual(ind) {
+      const t = ind.traj;
+      const n = t.pos.length;
+      const k = Math.max(0, Math.min(n - 1, Math.round(tNow / ind.dt)));
+      const f = t.pos[k];
+      const forward = k === ind.lastFrame + 1;
+      for (let i = 0; i < f.length; i++) {
+        ind.nodes[i].position.set(f[i][0], f[i][1], 0);
+        const contact = t.contact_force[k][i] > 0;
+        ind.contacts[i].position.set(f[i][0], f[i][1], 0.001);
+        ind.contacts[i].visible = el("showContact").checked && contact;
+        // 前フレームで非接触→接触に変わった瞬間だけ着地エフェクトを出す (選択中の個体のみ)
+        if (forward && contact && !ind.prevContact[i] && ind === selected) {
+          spawnImpact(f[i][0], ind.group.position.z);
+        }
+        ind.prevContact[i] = contact;
+      }
+      // 辺: 自然長からのひずみで色 (自然長=白灰、圧縮=赤、伸長=青) と姿勢・長さを更新
+      const rest = t.rest_lengths?.[k];
+      for (let j = 0; j < ind.rods.length; j++) {
+        const [a, b] = ind.edges[j];
+        const pa = f[a], pb = f[b];
+        const dx = pb[0] - pa[0], dy = pb[1] - pa[1];
+        const length = Math.hypot(dx, dy) || 1e-6;
+        const rod = ind.rods[j];
+        rod.position.set((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2, 0);
+        rod.quaternion.setFromUnitVectors(UP, _edgeDir.set(dx / length, dy / length, 0));
+        rod.scale.set(1, length, 1);
+        const s = rest ? THREE.MathUtils.clamp((length - rest[j]) / rest[j] / STRAIN_FULL, -1, 1) : 0;
+        rod.material.color.copy(strainColor(s));
+      }
+      // エッジ番号は中点の少し上に置く
+      const showIds = el("showEdgeIds").checked;
+      for (let j = 0; j < ind.edgeLabels.length; j++) {
+        const [a, b] = ind.edges[j];
+        const pa = f[a], pb = f[b];
+        ind.edgeLabels[j].position.set((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2 + 0.04, 0.02);
+        ind.edgeLabels[j].visible = showIds;
+      }
+      ind.frame = k;
+      ind.lastFrame = k;
+    }
+
+    function updateStats(ind) {
+      if (!ind) return;
+      const t = ind.traj, k = ind.frame, f = t.pos[k];
+      let cx = 0, cy = 0, nc = 0;
+      for (const p of f) { cx += p[0]; cy += p[1]; }
+      cx /= f.length; cy /= f.length;
+      for (const c of t.contact_force[k]) if (c > 0) nc++;
+      el("comX").textContent = cx.toFixed(4) + " m";
+      el("comY").textContent = cy.toFixed(4) + " m";
+      el("distX").textContent = (tailX(f) - ind.tailX0).toFixed(4) + " m";
+      el("nContact").textContent = String(nc);
+      el("energy").textContent = ind.energyCum[k].toFixed(3) + " J";
+      el("pLabel").textContent = ind.title;
+      el("maxDist").textContent = ind.maxDist;
+      el("pFrames").textContent = String(t.pos.length);
+      el("pDt").textContent = ind.dt.toFixed(4) + " s";
+      el("slider").value = String(Math.round(tNow * 1000));
+      el("statTarget").textContent = "@ " + ind.title;
+    }
+
+    // エッジ別の遺伝子 (振幅・周波数・位相) を棒グラフで描く
+    function drawGeneChart(ind) {
+      const cv = el("geneChart"), ctx = cv.getContext("2d");
+      const t = ind?.traj;
+      const nE = t?.rest_lengths?.[0]?.length ?? 0;
+      const g = t?.gene ?? [];
+      // 棒は細く。横スクロールはグラフ内だけ (パネル全体はスクロールさせない)
+      const BAR = 8, GAP = 4, LEFT = 52, RIGHT = 8, TOP = 18, BOTTOM = 16, H = 330;
+      const need = LEFT + RIGHT + Math.max(1, nE) * (BAR + GAP);
+      cv.width = Math.max(el("geneChartWrap").clientWidth || 300, need);
+      cv.height = H;
+      const W = cv.width;
+      ctx.clearRect(0, 0, W, H);
+      if (!nE || !g.length) {
+        ctx.fillStyle = "#a6abb1"; ctx.font = "12px sans-serif";
+        ctx.fillText("遺伝子データなし", 8, 20);
+        return;
+      }
+      // 新形式 [振幅, 周波数, 位相]、旧形式 [振幅, 位相] の両方を受ける
+      const hasFreq = g.length >= 3 * nE;
+      const amp = g.slice(0, nE);
+      const freq = hasFreq ? g.slice(nE, 2 * nE) : null;
+      const phase = hasFreq ? g.slice(2 * nE, 3 * nE) : g.slice(nE, 2 * nE);
+      const TAU = 2 * Math.PI;
+      const panels = hasFreq
+        ? [
+            ["振幅 [N]", "0–100", amp, 100, [0, 50, 100]],
+            ["周波数 [Hz]", "0.1–1", freq, 1, [0.1, 0.5, 1]],
+            ["位相 [rad]", "0–2π", phase, TAU, [0, Math.PI, TAU]],
+          ]
+        : [
+            ["振幅 [N]", "0–100", amp, 100, [0, 50, 100]],
+            ["位相 [rad]", "0–2π", phase, TAU, [0, Math.PI, TAU]],
+          ];
+      const plotW = W - LEFT - RIGHT;
+      const panelH = (H - TOP - BOTTOM) / panels.length;
+      ctx.font = "11px sans-serif";
+      const tickLabel = v => (Math.abs(v - TAU) < 1e-6 ? "2π" : Math.abs(v - Math.PI) < 1e-6 ? "π" : String(+v.toFixed(2)));
+      panels.forEach(([label, range, vals, max, ticks], pi) => {
+        const y0 = TOP + pi * panelH;
+        const h = panelH - 20;
+        // 変数名は見出しとして太字で、範囲はその下に小さく
+        ctx.fillStyle = "#ededed";
+        ctx.font = "bold 13px sans-serif";
+        ctx.fillText(label, 2, y0 + 12);
+        ctx.fillStyle = "#a6abb1";
+        ctx.font = "11px sans-serif";
+        ctx.fillText(range, 2, y0 + 26);
+        ctx.font = "12px sans-serif";
+        // 目盛り: 水平線と値を左に出す
+        for (const tv of ticks) {
+          const ty = y0 + h - (tv / max) * h;
+          ctx.strokeStyle = tv === 0 ? "#6b7178" : "#454a51";
+          ctx.beginPath(); ctx.moveTo(LEFT, ty); ctx.lineTo(LEFT + plotW, ty); ctx.stroke();
+          ctx.fillStyle = "#e6e9ed";
+          ctx.textAlign = "right";
+          ctx.fillText(tickLabel(tv), LEFT - 6, ty + 4);
+          ctx.textAlign = "left";
+        }
+        ctx.font = "11px sans-serif";
+        for (let i = 0; i < nE; i++) {
+          const v = Math.max(0, Math.min(max, vals[i]));
+          const bh = (v / max) * (h - 6);
+          const x = LEFT + i * (BAR + GAP);
+          ctx.fillStyle = "#85d6bf";
+          ctx.fillRect(x, y0 + h - bh, BAR, bh);
+          ctx.fillStyle = "#8a9098";
+          ctx.fillText(String(i), x + BAR / 2 - 3, y0 + h + 11);
+        }
+      });
+    }
+
+    function duration() {
+      let d = 0;
+      for (const ind of individuals) {
+        const ts = ind.traj.times;
+        if (ts.length) d = Math.max(d, ts[ts.length - 1]);
+      }
+      return d;
+    }
+
+    function resizeSlider() {
+      const s = el("slider");
+      s.max = String(Math.round(duration() * 1000));
+      if (+s.value > +s.max) s.value = s.max;
+    }
+
+    function setTime(t) {
+      if (!individuals.length) {
+        tNow = 0;
+        el("slider").value = "0";
+        return;
+      }
+      tNow = Math.max(0, Math.min(duration(), t));
+      for (const ind of individuals) updateIndividual(ind);
+      el("tLabel").textContent = tNow.toFixed(3) + " s";
+      el("slider").value = String(Math.round(tNow * 1000));
+      updateStats(selected);
+    }
+
+    function selectIndividual(ind) {
+      selected = ind;
+      for (const x of individuals) x.textMesh?.material.color.set(x === ind ? 0x9eceff : 0xffffff);
+      drawGeneChart(ind);
+      updateStats(ind);
+    }
+
+    function layout() {
+      individuals.forEach((ind, i) => {
+        if (ind.group) ind.group.position.set(X_OFFSET, 0, Z_START + i * Z_SPACING);
+      });
+    }
+
+    function removeIndividual(ind) {
+      const i = individuals.indexOf(ind);
+      if (i < 0) return;
+      individuals.splice(i, 1);
+      ind.group.traverse(o => {
+        o.geometry?.dispose?.();
+        for (const m of [o.material].flat()) { m?.map?.dispose?.(); m?.dispose?.(); }
+      });
+      scene.remove(ind.group);
+      layout();
+      resizeSlider();
+      if (selected === ind) selectIndividual(individuals[Math.min(i, individuals.length - 1)] ?? null);
+      if (!individuals.length) {
+        selected = null;
+        drawGeneChart(null);
+        for (const id of ["pLabel", "maxDist", "pFrames", "pDt", "comX", "comY", "distX", "nContact", "energy", "tLabel"]) el(id).textContent = "-";
+        el("statTarget").textContent = "";
+      }
+      setTime(Math.min(tNow, duration()));
+    }
+
+    function addIndividual(traj, meta) {
+      const ind = createIndividual(traj, meta);
+      individuals.push(ind);
+      const warn = buildCreature(ind);
+      createLabel(ind);
+      selectIndividual(ind);
+      resizeSlider();
+      setTime(tNow);
+      return { ind, warn };
+    }
+
+    function describe(ind) {
+      return `${ind.traj.pos.length} フレーム × ${ind.traj.pos[0].length} 質点 × ${ind.edges.length} 辺`;
+    }
+
+    // ---------- 読み込み ----------
     async function loadFile(file) {
-      try { loadTraj(JSON.parse(await file.text())); }
+      try { loadJson(JSON.parse(await file.text()), null); }
       catch (e) { setStatus("JSON の解析に失敗: " + e.message, true); }
     }
-    async function loadUrl(url) {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-        loadTraj(await r.json());
-      } catch (e) { setStatus("取得失敗: " + e.message, true); }
+
+    // パス読み込み時は、ファイルの親ディレクトリ名を run 名として補う。
+    // gen/rank は trajectory_gen386_rank0.json のラベルから取り出す (rank はファイル表記のまま)。
+    function metaFromPath(input, t) {
+      const parts = decodeURIComponent(input.split("?")[0]).split("/").filter(Boolean);
+      const runName = parts.length >= 2 ? parts[parts.length - 2] : "";
+      const m = /gen(\d+)[_-]rank(\d+)/.exec(t.label ?? "");
+      if (!runName && !m) return null;
+      return {
+        case: runName || (t.label ?? "individual"),
+        gen: m ? Number(m[1]) : undefined,
+        rank: m ? Number(m[2]) : undefined,
+      };
     }
 
-    el("file").addEventListener("change", e => e.target.files[0] && loadFile(e.target.files[0]));
-    el("loadUrl").addEventListener("click", () => el("url").value && loadUrl(el("url").value));
-    for (const [id, fn] of [["drop", HTMLDivElement.prototype], ["stage", HTMLDivElement.prototype]]) {
-      const d = el(id);
-      d.addEventListener("dragover", e => e.preventDefault());
-      d.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+    function loadJson(t, meta) {
+      const { ind, warn } = addIndividual(t, meta);
+      setStatus(`読み込み完了: ${describe(ind)}${warn}`, warn !== "");
+      return ind;
     }
-    el("slider").addEventListener("input", e => { playing = false; setFrame(+e.target.value); });
-    el("play").addEventListener("click", () => { playing = !playing; lastT = null; el("play").textContent = playing ? "⏸ 一時停止" : "▶ 再生"; });
-    el("stepF").addEventListener("click", () => { playing = false; setFrame(frame + 1); });
-    el("stepB").addEventListener("click", () => { playing = false; setFrame(frame - 1); });
-    el("reset").addEventListener("click", () => { playing = false; setFrame(0); });
+
+    // 絶対パスを、現在のリソース URL 基準の相対パスへ写像する。
+    // サーバー配信時はリポジトリルートからの絶対 URL に変換する。
+    function toFetchUrl(input) {
+      if (!input.startsWith("/")) return input;
+      const p = decodeURIComponent(input);
+      if (!apiBase && serverRoot && (p === serverRoot || p.startsWith(serverRoot + "/"))) {
+        return "/" + p.slice(serverRoot.length + 1);
+      }
+      const baseDir = decodeURIComponent(new URL("./", document.baseURI).pathname);
+      const a = baseDir.split("/").filter(Boolean);
+      const b = p.split("/").filter(Boolean);
+      let i = 0;
+      while (i < a.length && i < b.length && a[i] === b[i]) i++;
+      return "../".repeat(a.length - i) + b.slice(i).join("/");
+    }
+
+    async function loadUrl(input) {
+      input = input.trim().replace(/^["']|["']$/g, "");
+      // 絶対パスは写像する。相対パスはビューア基準で探し、無ければリポジトリルート基準も試す。
+      const candidates = input.startsWith("/")
+        ? [toFetchUrl(input)]
+        : [input, "../" + input];
+      let text, lastError = "";
+      for (const url of candidates) {
+        try {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${url}`);
+          text = await r.text();
+          break;
+        } catch (e) { lastError = e.message; }
+      }
+      if (text === undefined) {
+        setStatus(`取得失敗: ${lastError}。絶対パスが読めるのは replay API 接続時か VS Code プレビュー (ワークスペース内) だけです。`, true);
+        return;
+      }
+      try {
+        const t = JSON.parse(text);
+        loadJson(t, metaFromPath(input, t));
+      } catch (e) { setStatus("読み込みに失敗: " + e.message, true); }
+    }
+
+    // ---------- replay API ----------
+    async function refreshCases() {
+      // 同一オリジン (bodyopt viewer 配信)、次に既定ポートの API の順に試す
+      for (const base of ["", API_FALLBACK]) {
+        try {
+          const r = await fetch(base + "/_api/cases", { cache: "no-store" });
+          if (!r.ok) throw new Error(String(r.status));
+          const data = await r.json();
+          apiBase = base;
+          serverRoot = base ? null : (data.root ?? null);
+          for (const c of data.cases ?? []) {
+            const o = document.createElement("option");
+            o.value = c;
+            el("caseList").append(o);
+          }
+          const n = (data.cases ?? []).length;
+          setReplayStatus(`接続済み · ケース ${n} 件`, "ok",
+            base ? `${base} (VS Code プレビュー経由)` : "同一オリジンの API");
+          return;
+        } catch {
+          // 次の候補へ
+        }
+      }
+      setReplayStatus("未接続", "err",
+        "uv run python -m bodyopt viewer を起動し、表示された URL から開いてください");
+    }
+
+    async function loadReplay() {
+      const caseName = el("caseName").value.trim();
+      const gens = el("genSpec").value.trim() || "0";
+      const ranks = el("rankSpec").value.trim() || "1";
+      if (!caseName) { setReplayStatus("ケース名を入れてください", "err"); return; }
+      const btn = el("loadReplay");
+      btn.disabled = true;
+      setReplayStatus("replay 実行中…", "busy", `${caseName} gen ${gens} / rank ${ranks}`);
+      try {
+        const r = await fetch(apiUrl("/_api/replay"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ case: caseName, gens, ranks }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error ?? r.statusText);
+        const items = data.items ?? [], errors = data.errors ?? [];
+        let loaded = 0;
+        for (const it of items) {
+          try {
+            const rr = await fetch(apiUrl(it.url));
+            if (!rr.ok) throw new Error(String(rr.status));
+            loadJson(await rr.json(), it);
+            loaded++;
+          } catch (e) {
+            errors.push(`${it.case} gen${it.gen} rank${it.rank}: 取得失敗 ${e.message}`);
+          }
+        }
+        setReplayStatus(
+          `${loaded} 個体を読み込み${errors.length ? ` / ${errors.length} 件失敗` : ""}`,
+          errors.length ? "err" : "ok",
+          errors.join("\n"),
+        );
+      } catch (e) {
+        setReplayStatus("replay 失敗", "err", e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ---------- 配線 ----------
+    el("loadReplay").addEventListener("click", loadReplay);
+    el("clearAll").addEventListener("click", () => {
+      for (const ind of [...individuals]) removeIndividual(ind);
+      setReplayStatus("個体をすべて削除しました", "info");
+    });
+    el("loadUrl").addEventListener("click", () => el("url").value && loadUrl(el("url").value));
+    el("url").addEventListener("keydown", e => { if (e.key === "Enter" && el("url").value) loadUrl(el("url").value); });
+    el("stage").addEventListener("dragover", e => e.preventDefault());
+    el("stage").addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) loadFile(f); });
+    el("slider").addEventListener("input", e => { playing = false; el("play").textContent = "▶ 再生"; setTime(+e.target.value / 1000); });
+    el("play").addEventListener("click", () => {
+      if (!individuals.length) return;
+      playing = !playing; lastT = null;
+      if (playing && tNow >= duration()) tNow = 0;
+      el("play").textContent = playing ? "⏸ 一時停止" : "▶ 再生";
+    });
+    el("stepF").addEventListener("click", () => { playing = false; setTime(tNow + (selected?.dt ?? 0.0025)); });
+    el("stepB").addEventListener("click", () => { playing = false; setTime(tNow - (selected?.dt ?? 0.0025)); });
+    el("reset").addEventListener("click", () => { playing = false; setTime(0); });
     el("speed").addEventListener("input", e => { el("speedLabel").textContent = (+e.target.value).toFixed(1) + "×"; });
-    el("showCom").addEventListener("change", e => comLine.visible = e.target.checked);
-    el("showContact").addEventListener("change", () => setFrame(frame));
+    el("showCom").addEventListener("change", e => {
+      for (const ind of individuals) ind.comLine.visible = e.target.checked;
+    });
+    el("showContact").addEventListener("change", () => setTime(tNow));
+    el("showEdgeIds").addEventListener("change", () => setTime(tNow));
+
+    // ---------- 3D ラベルのクリック ----------
+    const _raycaster = new THREE.Raycaster();
+    const _pointer = new THREE.Vector2();
+    function labelHit(e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      _pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1,
+                   -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      _raycaster.setFromCamera(_pointer, camera);
+      const targets = [];
+      for (const ind of individuals) if (ind.deleteMesh) targets.push(ind.textMesh, ind.deleteMesh);
+      return _raycaster.intersectObjects(targets, false)[0]?.object ?? null;
+    }
+    renderer.domElement.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      const obj = labelHit(e);
+      if (!obj) return;
+      if (obj.userData.kind === "delete") removeIndividual(obj.userData.ind);
+      else selectIndividual(obj.userData.ind);
+    });
+    renderer.domElement.addEventListener("pointermove", e => {
+      renderer.domElement.style.cursor = labelHit(e) ? "pointer" : "";
+    });
 
     function tick(now) {
       requestAnimationFrame(tick);
       controls.update();
-      if (playing && traj) {
+      const animDt = Math.min((now - (lastTick ?? now)) / 1000, 0.1);
+      lastTick = now;
+      stepImpacts(animDt);
+      if (playing && individuals.length) {
         const dt = Math.min((now - (lastT ?? now)) / 1000, 0.1);
         lastT = now;
-        acc += dt * (+el("speed").value) * 60; // 60 fps 基準
-        while (acc >= 1 && traj) { setFrame(frame + 1); acc -= 1; if (frame >= traj.pos.length - 1) { playing = false; el("play").textContent = "▶ 再生"; break; } }
+        const end = duration();
+        if (tNow + dt * (+el("speed").value) >= end) {
+          setTime(end);
+          playing = false;
+          el("play").textContent = "▶ 再生";
+        } else {
+          setTime(tNow + dt * (+el("speed").value));
+        }
       }
       renderer.render(scene, camera);
     }
     resize();
+    refreshCases();
     requestAnimationFrame(tick);
   </script>
   <script src="../docs/open/assets/html-state.js" defer></script>

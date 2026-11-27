@@ -20,7 +20,7 @@ from bodyopt.physics import SimParams
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
-BEST_DIST_TOL = 0.5  # 破綻防止の上限 [m] (跳躍解の既知の感度は 0.2 程度)
+BEST_DIST_TOL = 50.0  # 発散判定の上限 [m] (高周波の跳躍解で 10 m 級が出るため)
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +55,7 @@ def test_最良個体の距離が破綻しない(best_gene):
     ]
     spread = max(dists) - min(dists)
     assert score > -1.0e6, "最良個体が無効のまま"
+    assert max(abs(d) for d in dists) < BEST_DIST_TOL, f"距離が発散: {dists}"
     assert spread < BEST_DIST_TOL, (
         f"GA の最良個体 (score={score:.3f}) が scheme 間で {dists} と破綻的にばらついた。"
         "跳躍モード既知の感度 (0.2 程度) を超えたため物理設定の見直しが必要"

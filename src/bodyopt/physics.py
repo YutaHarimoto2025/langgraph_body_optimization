@@ -15,7 +15,10 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 
+from jax.typing import DTypeLike
+
 from .creature import CreatureSpec
+from .models import get_model
 
 Integrator = Literal["semi_implicit_euler", "rk4"]
 
@@ -30,11 +33,12 @@ class SimParams:
     gravity: float = 9.81
     dt: float = 0.005
     episode_seconds: float = 5.0
-    k_contact: float = 2000.0
-    c_contact: float = 89.44  # 2√(k_c·m) 臨界減衰: バウンドの非物理的な継続を抑える
+    k_contact: float = 20000.0
+    c_contact: float = 282.84  # 2√(k_c·m) 臨界減衰: バウンドの非物理的な継続を抑える
     mu_friction: float = 0.7
     friction_vel_eps: float = 0.05
-    omega: float = 2.0 * jnp.pi  # 全筋肉共通の駆動角周波数 [rad/s] (1 Hz)
+    muscle_model: str = "active_force"  # models.MODELS のキー
+    edge_damping_ratio: float = 0.0  # 辺の軸方向粘性減衰の減衰比 ζ (0 で減衰なし)
     integrator: Integrator = "semi_implicit_euler"
 
     @property
@@ -52,43 +56,49 @@ class RolloutResult:
     spring_force: jax.Array  # [T+1, E] 辺張力 (張りが正)
     contact_force: jax.Array  # [T+1, N] 法線反力
     drive_power: jax.Array  # [T+1, E] 筋肉の注入仕事率 (正の分のみ)
-    rest_lengths: jax.Array  # [T+1, E] 時変自然長
+    rest_lengths: jax.Array  # [T+1, E] 基準自然長 (固定)
 
 
-def muscle_rest_lengths(
-    base_rest: jax.Array,  # [E]
-    amplitude: jax.Array,  # [E_m] 遺伝子
-    phase: jax.Array,  # [E_m] 遺伝子
-    omega: float,
-    muscle_idx: jax.Array,  # [E_m] 能動辺の index
-    t: jax.Array,  # スカラーまたは [T]
-) -> jax.Array:
-    """時変自然長 l_rest(t) = L_e (1 + a_e sin(ωt + φ_e))。非駆動辺は基準のまま。"""
-    t_col = jnp.expand_dims(t, -1)  # t スカラー: (1,)、ベクトル: [T, 1]
-    act = amplitude * jnp.sin(omega * t_col + phase)  # [E_m] or [T, E_m]
-    if act.ndim == 1:
-        return base_rest.at[muscle_idx].multiply(1.0 + act)
-    base = jnp.broadcast_to(base_rest, (act.shape[0], base_rest.shape[0]))
-    upd = base[:, muscle_idx] * (1.0 + act)
-    return base.at[:, muscle_idx].set(upd)
+def _edge_damping_coeff(stiffness: jax.Array, masses: jax.Array, edges: jax.Array, zeta: float) -> jax.Array:
+    """辺ごとの粘性減衰係数 c_e = 2 ζ √(k_e m_eff)、m_eff = m_i m_j / (m_i + m_j)。"""
+    m_i = masses[edges[:, 0]]
+    m_j = masses[edges[:, 1]]
+    m_eff = m_i * m_j / (m_i + m_j)
+    return 2.0 * zeta * jnp.sqrt(stiffness * m_eff)
+
+
+def _incidence(edges: jax.Array, n_nodes: int, dtype: DTypeLike) -> jax.Array:
+    """[N, E] の入射行列。node が辺の終点なら +1、始点なら -1。構築時に 1 回だけ作る。"""
+    ids = jnp.arange(n_nodes)[:, None]
+    return (ids == edges[None, :, 1]).astype(dtype) - (ids == edges[None, :, 0]).astype(dtype)
 
 
 def _spring_forces(
     pos: jax.Array,  # [N, 2]
+    vel: jax.Array,  # [N, 2]
     edges: jax.Array,  # [E, 2]
     stiffness: jax.Array,  # [E]
-    rest_t: jax.Array,  # [E] 現在時刻の自然長
-) -> tuple[jax.Array, jax.Array, jax.Array]:
-    """辺張力と各質点へのバネ力。戻り値: node_forces [N,2], tension [E], length [E]。"""
+    rest: jax.Array,  # [E] 基準自然長
+    active: jax.Array,  # [E] 能動収縮力 (引く向きが正)
+    damping: jax.Array,  # [E] 軸方向粘性減衰の係数 c_e
+    incidence: jax.Array,  # [N, E] 固定順の和に使う
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    """受動バネ + 能動収縮力 + 軸方向粘性減衰。
+
+    dL/dt は両端の相対速度を辺軸へ射影して求める。減衰は辺の伸縮だけを減らし、
+    身体全体の並進・剛体回転には働かない。質点ごとの和は固定順の行列和で取る
+    (GPU の atomic scatter より速く、加算順も決定的)。戻り値: node_forces, tension, length, u。
+    """
     d = pos[edges[:, 0]] - pos[edges[:, 1]]  # [E, 2]
     length = jnp.linalg.norm(d, axis=1)  # [E]
     u = d / jnp.maximum(length, _LEN_EPS)[:, None]
-    tension = stiffness * (length - rest_t)  # 張りが正
-    f_on_i = -tension[:, None] * u  # 辺の i 側質点にかかる力
-    forces = jnp.zeros_like(pos)
-    forces = forces.at[edges[:, 0]].add(f_on_i)
-    forces = forces.at[edges[:, 1]].add(-f_on_i)
-    return forces, tension, length
+    dLdt = jnp.sum(u * (vel[edges[:, 0]] - vel[edges[:, 1]]), axis=1)  # [E]
+    tension = stiffness * (length - rest) + active + damping * dLdt  # 張りが正
+    contrib = tension[:, None] * u  # [E, 2]
+    forces = jnp.stack(
+        [jnp.sum(incidence * contrib[None, :, k], axis=1) for k in range(2)], axis=1
+    )  # [N, 2]
+    return forces, tension, length, u
 
 
 def _contact_forces(
@@ -99,55 +109,45 @@ def _contact_forces(
     """床 (y=0) とのペナルティ反力と滑らかなクーロン摩擦。戻り値: total [N,2], normal [N]。"""
     penetration = jnp.maximum(0.0, -pos[:, 1])  # めり込み量 [N]
     normal = p.k_contact * penetration - p.c_contact * jnp.minimum(0.0, vel[:, 1])
-    normal = jnp.maximum(0.0, normal)  # 引っ張らない
+    # 減衰項は接触中だけ効かせる (空中で落下速度に比例した抗力が出るのを防ぐ)
+    normal = jnp.maximum(0.0, normal) * (penetration > 0.0)  # 引っ張らない
     friction = -p.mu_friction * normal * jnp.tanh(vel[:, 0] / p.friction_vel_eps)
     total = jnp.stack([friction, normal], axis=1)
     return total, normal
 
 
-def _drive_power(
-    tension: jax.Array,  # [E] 現在張力
-    base_rest: jax.Array,  # [E]
-    muscle_idx: jax.Array,  # [E_m]
-    amplitude: jax.Array,  # [E_m]
-    phase: jax.Array,  # [E_m]
-    omega: float,
-    t: jax.Array,
-) -> jax.Array:
-    """筋肉がバネへ注入する仕事率 P = -∂U/∂l_rest · dl_rest/dt (正の分のみ)。
-
-    張った筋肉がさらに縮むときに正となり、弛んだ筋肉の自然長変化は
-    記録上ゼロとする (回生を数えない)。
-    """
-    dl = omega * amplitude * jnp.cos(omega * t + phase)  # [E_m] d(act)/dt
-    f = tension[muscle_idx]
-    power = jnp.maximum(0.0, -(f * base_rest[muscle_idx]) * dl)  # [E_m]
-    out = jnp.zeros(base_rest.shape[0], dtype=power.dtype)
-    return out.at[muscle_idx].set(power)
-
-
-def rollout(
-    gene: jax.Array,  # [2*E_m] amplitude, phase の連結
+def _make_step(
+    gene: jax.Array,
     spec: CreatureSpec,
     p: SimParams,
-    integrator: Integrator | None = None,
-) -> RolloutResult:
-    """1 個体分のエピソード。jit 対応 (dataclass は trace 時に静的に扱われる)。"""
-    integ = p.integrator if integrator is None else integrator
+    integ: Integrator,
+):
+    """1 ステップの物理を組み立てる。rollout (全フレーム記録) と summary (集計のみ) で共有。"""
     muscle_idx = spec.muscle_idx
     n_m = int(muscle_idx.shape[0])
-    amp, phase = gene[:n_m], gene[n_m:]
+    amp, freq, phase = gene[:n_m], gene[n_m : 2 * n_m], gene[2 * n_m :]
     edges, stiffness, base_rest = spec.edges, spec.stiffness, spec.rest_lengths
     masses_inv = 1.0 / spec.masses
-    n_steps = p.n_steps
     dt = p.dt
+    g_vec = jnp.array([0.0, -p.gravity], dtype=spec.base_pos.dtype)
+    model = get_model(p.muscle_model)  # static (trace 時に確定)
+    damping = _edge_damping_coeff(stiffness, spec.masses, edges, p.edge_damping_ratio)
+    incidence = _incidence(edges, spec.n_nodes, spec.base_pos.dtype)
+
+    def _edges(t: jax.Array, pos: jax.Array, vel: jax.Array):
+        rest_t = model.rest_lengths(base_rest, amp, freq, phase, t, muscle_idx)
+        active = model.active_tension(amp, freq, phase, t, muscle_idx, spec.n_edges)
+        spring_f, tension, length, u = _spring_forces(
+            pos, vel, edges, stiffness, rest_t, active, damping, incidence
+        )
+        return rest_t, spring_f, tension, length, u, active
 
     def observe(pos: jax.Array, vel: jax.Array, t: jax.Array):
-        rest_t = muscle_rest_lengths(base_rest, amp, phase, p.omega, muscle_idx, t)
-        spring_f, tension, _ = _spring_forces(pos, edges, stiffness, rest_t)
+        rest_t, spring_f, tension, _, u, active = _edges(t, pos, vel)
         contact_f, normal = _contact_forces(pos, vel, p)
-        drive = _drive_power(tension, base_rest, muscle_idx, amp, phase, p.omega, t)
-        acc = (spring_f + contact_f) * masses_inv[:, None]
+        dLdt = jnp.sum(u * (vel[edges[:, 0]] - vel[edges[:, 1]]), axis=1)
+        drive = model.drive_power(active, tension, base_rest, dLdt, amp, freq, phase, t, muscle_idx)
+        acc = (spring_f + contact_f) * masses_inv[:, None] + g_vec
         obs = dict(
             pos=pos,
             vel=vel,
@@ -158,10 +158,14 @@ def rollout(
         )
         return obs, acc
 
+    def _accel(t: jax.Array, pos: jax.Array, vel: jax.Array) -> jax.Array:
+        _, spring_f, _, _, _, _ = _edges(t, pos, vel)
+        contact_f, _ = _contact_forces(pos, vel, p)
+        return (spring_f + contact_f) * masses_inv[:, None] + g_vec
+
     def rk4_update(pos: jax.Array, vel: jax.Array, t: jax.Array) -> tuple[jax.Array, jax.Array]:
         def f(tt: jax.Array, pv: jax.Array, vv: jax.Array):
-            a, _, _ = _forces_only(tt, pv, vv)
-            return vv, a
+            return vv, _accel(tt, pv, vv)
 
         k1p, k1v = f(t, pos, vel)
         k2p, k2v = f(t + dt / 2, pos + dt / 2 * k1p, vel + dt / 2 * k1v)
@@ -172,29 +176,41 @@ def rollout(
             vel + dt / 6.0 * (k1v + 2 * k2v + 2 * k3v + k4v),
         )
 
-    def _forces_only(t: jax.Array, pos: jax.Array, vel: jax.Array):
-        rest_t = muscle_rest_lengths(base_rest, amp, phase, p.omega, muscle_idx, t)
-        spring_f, tension, _ = _spring_forces(pos, edges, stiffness, rest_t)
-        contact_f, _ = _contact_forces(pos, vel, p)
-        return (spring_f + contact_f) * masses_inv[:, None], tension, rest_t
-
-    def scan_fn(carry, _):
-        pos, vel, t = carry
+    def step(pos: jax.Array, vel: jax.Array, t: jax.Array):
         obs, acc = observe(pos, vel, t)
         if integ == "rk4":
             pos_n, vel_n = rk4_update(pos, vel, t)
         else:
             vel_n = vel + dt * acc  # 半陰的オイラー
             pos_n = pos + dt * vel_n
+        return pos_n, vel_n, obs
+
+    return observe, step
+
+
+def rollout(
+    gene: jax.Array,
+    spec: CreatureSpec,
+    p: SimParams,
+    integrator: Integrator | None = None,
+) -> RolloutResult:
+    """全フレームを記録するロールアウト (replay・記録用)。"""
+    integ = p.integrator if integrator is None else integrator
+    observe, step = _make_step(gene, spec, p, integ)
+    dt = p.dt
+
+    def scan_fn(carry, _):
+        pos, vel, t = carry
+        pos_n, vel_n, obs = step(pos, vel, t)
         return (pos_n, vel_n, t + dt), obs
 
     t0 = jnp.float32(0.0)
     init = (spec.base_pos, jnp.zeros((spec.n_nodes, 2), dtype=jnp.float32), t0)
-    (pos_T, vel_T, t_T), outs = jax.lax.scan(scan_fn, init, None, length=n_steps)
+    (pos_T, vel_T, t_T), outs = jax.lax.scan(scan_fn, init, None, length=p.n_steps)
 
     final_obs, _ = observe(pos_T, vel_T, t_T)
     outs = jax.tree.map(lambda s, f: jnp.concatenate([s, f[None]], axis=0), outs, final_obs)
-    times = jnp.arange(n_steps + 1, dtype=jnp.float32) * dt
+    times = jnp.arange(p.n_steps + 1, dtype=jnp.float32) * dt
     return RolloutResult(
         pos=outs["pos"],
         vel=outs["vel"],
@@ -203,4 +219,72 @@ def rollout(
         contact_force=outs["contact_force"],
         drive_power=outs["drive_power"],
         rest_lengths=outs["rest_lengths"],
+    )
+
+
+@dataclass(frozen=True)
+class RolloutSummary:
+    """評価に必要な集計値だけを持つ。フレーム列を保持しないのでメモリはステップ数に依存しない。"""
+
+    distance: jax.Array
+    max_penetration: jax.Array
+    drive_energy: jax.Array
+    contact_rate: jax.Array
+    finite: jax.Array
+
+
+def rollout_summary(
+    gene: jax.Array,
+    spec: CreatureSpec,
+    p: SimParams,
+    integrator: Integrator | None = None,
+) -> RolloutSummary:
+    """集計値を scan 内で累積する評価用ロールアウト。中間フレームをメモリに残さない。"""
+    integ = p.integrator if integrator is None else integrator
+    observe, step = _make_step(gene, spec, p, integ)
+    dt = p.dt
+    masses = spec.masses
+    m_total = jnp.sum(masses)
+
+    def com_x(pos: jax.Array) -> jax.Array:
+        return jnp.sum(pos[:, 0] * masses) / m_total
+
+    def penetration(pos: jax.Array) -> jax.Array:
+        return jnp.maximum(0.0, -jnp.min(pos[:, 1]))
+
+    x0 = com_x(spec.base_pos)
+    z = jnp.float32(0.0)
+    init = (
+        spec.base_pos,
+        jnp.zeros((spec.n_nodes, 2), dtype=jnp.float32),
+        jnp.float32(0.0),
+        z,  # drive energy (和)
+        z,  # max penetration
+        z,  # contact count
+        jnp.array(True),  # finite
+    )
+
+    def scan_fn(carry, _):
+        pos, vel, t, energy, pen, contact, finite = carry
+        pos_n, vel_n, obs = step(pos, vel, t)
+        energy = energy + jnp.sum(jnp.maximum(0.0, obs["drive_power"]))
+        pen = jnp.maximum(pen, penetration(pos))
+        contact = contact + jnp.sum(obs["contact_force"] > 0)
+        finite = finite & jnp.all(jnp.isfinite(pos)) & jnp.all(jnp.isfinite(vel))
+        return (pos_n, vel_n, t + dt, energy, pen, contact, finite), None
+
+    (pos_T, vel_T, t_T, energy, pen, contact, finite), _ = jax.lax.scan(
+        scan_fn, init, None, length=p.n_steps
+    )
+    obs_T, _ = observe(pos_T, vel_T, t_T)
+    pen = jnp.maximum(pen, penetration(pos_T))
+    contact = contact + jnp.sum(obs_T["contact_force"] > 0)
+    finite = finite & jnp.all(jnp.isfinite(pos_T)) & jnp.all(jnp.isfinite(vel_T))
+    n_frames = p.n_steps + 1
+    return RolloutSummary(
+        distance=com_x(pos_T) - x0,
+        max_penetration=pen,
+        drive_energy=energy * dt,
+        contact_rate=contact / (n_frames * spec.n_nodes),
+        finite=finite,
     )
