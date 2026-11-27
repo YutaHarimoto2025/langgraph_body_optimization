@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>報告 2026-11-28｜run 009 (10^4 × 10^3)</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background:#232323; color:#ededed; }
+  body { max-width:56rem; margin:auto; padding:1.5rem 1rem 3rem; line-height:1.75; }
+  h2 { margin-top:2.25rem; border-bottom:1px solid #888; padding-bottom:.3rem; }
+  table { border-collapse:collapse; width:100%; background:#303030; margin:.8rem 0; }
+  th,td { border:1px solid #888; padding:.5rem; text-align:left; vertical-align:top; }
+  thead th { background:#3d3d3d; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:.9em; background:#363636; padding:0 .25em; border-radius:3px; }
+  .lead { border-left:.25rem solid #85d6bf; padding:.75rem 1rem; background:#293a36; }
+  .note { font-size:.88rem; color:#a6abb1; }
+  .warn { border-left:.25rem solid #e0b685; padding:.75rem 1rem; background:#3a352d; }
+</style>
+</head>
+<body>
+<h1>報告 2026-11-28｜run 009: 10,000 個体 × 1,000 世代</h1>
+<p class="note">commit afb9ee7 (dirty: false)｜tag run-009｜生データ: <code>resources/runs/009/</code></p>
+<p class="lead">11 辺の両対角ラダー・能動収縮モデル・軸方向粘性減衰 (ζ=0.10) の条件で、集団 10,000・1,000 世代を 48.6 秒で完走した。最良距離は 8.11 m (世代 760、最終世代も同値)。同一最良遺伝子を 20 回再実行した距離の幅は 0.000 m で、カオスによるばらつきは判定基準 (max(5 mm, 平均の 1%)) を満たした。</p>
+
+<h2>実験設定</h2>
+<table>
+<tr><th>項目</th><th>値</th></tr>
+<tr><td>身体</td><td>6 質点・11 辺 (両対角)、辺剛性 500 N/m、質量 1 kg</td></tr>
+<tr><td>筋肉</td><td>active_force: 振幅 0–100 N、周波数 0.1–1 Hz、位相 0–2π</td></tr>
+<tr><td>減衰</td><td>辺の軸方向、減衰比 ζ=0.10</td></tr>
+<tr><td>積分</td><td>半陰的オイラー、dt=2.5 ms、episode 5 s</td></tr>
+<tr><td>GA</td><td>集団 10,000、エリート 2、トーナメント k=3、一様交叉 0.8、突然変異 0.1/遺伝子 (σ=範囲の 5%)、移民 20%</td></tr>
+<tr><td>記録</td><td>summary (各世代の最良遺伝子と統計)</td></tr>
+</table>
+
+<h2>資源</h2>
+<table>
+<tr><th>項目</th><th>値</th></tr>
+<tr><td>実行時間</td><td>48.6 s (1,000 世代)</td></tr>
+<tr><td>VRAM ピーク</td><td>1.54 GB</td></tr>
+<tr><td>履歴メモリ</td><td>1 世代あたり約 1.6 MB (10,000 個体 × 156 B)</td></tr>
+</table>
+
+<h2>結果</h2>
+<table>
+<tr><th>世代</th><th>最良距離 [m]</th></tr>
+<tr><td>0</td><td>0.32</td></tr>
+<tr><td>100</td><td>5.56</td></tr>
+<tr><td>300</td><td>7.17</td></tr>
+<tr><td>500</td><td>7.39</td></tr>
+<tr><td>700</td><td>7.79</td></tr>
+<tr><td>760 (最良)</td><td>8.11</td></tr>
+<tr><td>999</td><td>8.11</td></tr>
+</table>
+<p>valid rate は全世代 1.0。探索は 100 世代までに 5.6 m まで伸び、以降は緩やかに改善して 760 世代で 8.11 m に達し、最終世代まで維持した。5 秒で 8.1 m は平均 1.6 m/s で、跳躍を含む移動と見られる。</p>
+
+<h2>再現性 (chaos)</h2>
+<table>
+<tr><th>項目</th><th>値</th></tr>
+<tr><td>反復回数</td><td>20</td></tr>
+<tr><td>距離の平均</td><td>8.147 m</td></tr>
+<tr><td>距離の幅</td><td>0.000 m (0.00%)</td></tr>
+<tr><td>記録スコアとの差</td><td>+0.037 m (0.45%)</td></tr>
+<tr><td>判定</td><td>OK (基準 0.0815 m)</td></tr>
+</table>
+<p>幅が 0 なので、同一遺伝子の再実行は安定している。記録値との 0.45% の差は、10,000 個体をまとめて評価したときと単体で評価したときの数値差 (バッチ構成・丸め) によるもので、コード差ではない (meta.json の dirty は false)。</p>
+
+<h2>分析</h2>
+<p>run 006 は片対角 9 辺・減衰なし・周波数遺伝子なしの条件で 1.96 m だったため、今回の 8.11 m と直接は比較できない。今回の設定では、減衰と 0.1–1 Hz の帯域制限を入れても跳躍的な移動が最適になった。評価が距離のみであるため、滞空を含む解が選ばれている。</p>
+<p>カオスは減衰で抑えられているが、バッチ構成を変えると 0.45% 程度の差は残る。run 間の比較は同じ実行条件で行い、必要なら複数 seed の分布で見る。</p>
+
+<h2>残課題</h2>
+<ul>
+<li>集団履歴は record レベルに関係なく全世代を積む。大 pop × 多世代ではブロック単位の CPU 退避と 10 世代間引きが必要。</li>
+<li>駆動仕事の統計は評価を 30〜45% 遅くする。energy_budget 不使用時は省き、最良個体だけ replay で補完する。</li>
+<li>runs/001〜008 は dirty: true のため sha で再現できない。比較の基準にしない (resources/runs/old/ に移動済み)。</li>
+</ul>
+
+<p class="note">本報告の数値は resources/runs/009/stats.json と meta.json、および chaos の出力に基づく。</p>
+</body>
+</html>
