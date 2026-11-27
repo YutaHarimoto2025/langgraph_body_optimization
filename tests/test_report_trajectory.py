@@ -16,7 +16,7 @@ def test_report_matches_recorded_trajectory(tmp_path: Path) -> None:
         [
             sys.executable,
             str(root / "scripts/embed_report_trajectory.py"),
-            str(root / "resources/runs/first_try/trajectory_gen9_rank0.json"),
+            str(root / "resources/runs/old/first_try/trajectory_gen9_rank0.json"),
             str(copy),
         ],
         check=True,
