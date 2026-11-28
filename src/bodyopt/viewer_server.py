@@ -81,7 +81,8 @@ class _Handler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
-            case = str(body.get("case", "")).strip()
+            raw_cases = str(body.get("case", ""))
+            case_names = [c for c in raw_cases.replace(" ", ",").split(",") if c]
             gens = parse_step_spec(str(body.get("gens", "0")))
             ranks = parse_step_spec(str(body.get("ranks", "0")))
             raw_seconds = body.get("seconds")
@@ -93,7 +94,7 @@ class _Handler(SimpleHTTPRequestHandler):
                     raise ValueError("秒数は数値で指定してください") from None
                 if seconds <= 0:
                     raise ValueError("秒数は正の値にしてください")
-            if not case:
+            if not case_names:
                 raise ValueError("ケース名が空です")
             if not gens or not ranks:
                 raise ValueError("gen/rank の範囲が空です (開始 <= 終了)")
@@ -101,7 +102,15 @@ class _Handler(SimpleHTTPRequestHandler):
                 raise ValueError("gen は 0 以上にしてください")
             if min(ranks) < 0:
                 raise ValueError("rank は 0 始まりです (0 = 最良)")
-            run_dir = _resolve_run(case)
+            run_dirs = []
+            case_errors = []
+            for name in case_names:
+                try:
+                    run_dirs.append(_resolve_run(name))
+                except (ValueError, AttributeError) as e:
+                    case_errors.append(f"{name}: {e}")
+            if not run_dirs:
+                raise ValueError("有効なケースがありません: " + " / ".join(case_errors))
         except (ValueError, AttributeError) as e:
             self._json({"items": [], "errors": [], "error": str(e)}, status=400)
             return
@@ -111,47 +120,44 @@ class _Handler(SimpleHTTPRequestHandler):
         # 子プロセスで replay する。常に現在のソースコードが使われ、
         # 編集のたびにサーバーを再起動する必要がない。
         pairs = [(g, r) for g in gens for r in ranks]
-        labels = [f"{run_dir.name}_gen{g}_rank{r}" for g, r in pairs]
-        print(f"[viewer] replay {run_dir.name} gens={gens} ranks={ranks} ({len(pairs)} 個体)")
-        cmd = [
-            sys.executable, "-m", "bodyopt", "_replay-worker",
-            "--run", str(run_dir),
-            "--targets", json.dumps(pairs),
-            "--labels", json.dumps(labels),
-            "--out", str(TEMP_DIR),
-        ]
-        if seconds is not None:
-            cmd += ["--seconds", str(seconds)]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]
-            self._json(
-                {"items": [], "errors": [], "error": "replay に失敗: " + " / ".join(detail)},
-                status=500,
-            )
-            return
-        try:
-            results = json.loads(proc.stdout.strip().splitlines()[-1])
-        except (ValueError, IndexError) as e:
-            self._json({"items": [], "errors": [], "error": f"replay 出力の解析に失敗: {e}"}, status=500)
-            return
-
         items: list[dict[str, Any]] = []
-        errors: list[str] = []
-        for res in results:
-            if not res.get("path"):
-                errors.append(
-                    f"{run_dir.name} gen{res['generation']} rank{res['rank']}: {res.get('error')}"
-                )
+        errors: list[str] = list(case_errors)
+        for run_dir in run_dirs:
+            labels = [f"{run_dir.name}_gen{g}_rank{r}" for g, r in pairs]
+            print(f"[viewer] replay {run_dir.name} gens={gens} ranks={ranks} ({len(pairs)} 個体)")
+            cmd = [
+                sys.executable, "-m", "bodyopt", "_replay-worker",
+                "--run", str(run_dir),
+                "--targets", json.dumps(pairs),
+                "--labels", json.dumps(labels),
+                "--out", str(TEMP_DIR),
+            ]
+            if seconds is not None:
+                cmd += ["--seconds", str(seconds)]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]
+                errors.append(f"{run_dir.name}: replay に失敗: " + " / ".join(detail))
                 continue
-            items.append({
-                "case": run_dir.name,
-                "gen": res["generation"],
-                "rank": res["rank"],
-                "score": round(res["score"], 6),
-                "distance": round(res["distance"], 6),
-                "url": f"/_api/tmp/{Path(res['path']).name}",
-            })
+            try:
+                results = json.loads(proc.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError) as e:
+                errors.append(f"{run_dir.name}: replay 出力の解析に失敗: {e}")
+                continue
+            for res in results:
+                if not res.get("path"):
+                    errors.append(
+                        f"{run_dir.name} gen{res['generation']} rank{res['rank']}: {res.get('error')}"
+                    )
+                    continue
+                items.append({
+                    "case": run_dir.name,
+                    "gen": res["generation"],
+                    "rank": res["rank"],
+                    "score": round(res["score"], 6),
+                    "distance": round(res["distance"], 6),
+                    "url": f"/_api/tmp/{Path(res['path']).name}",
+                })
         self._json({"items": items, "errors": errors})
 
     def _serve_temp(self, name: str) -> None:

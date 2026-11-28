@@ -71,7 +71,7 @@
       <button id="loadReplay">読込</button>
       <button id="clearAll">全削除</button>
     </div>
-    <p class="note">gen/rank は「開始,終了,間隔」(開始のみでも可)。開始 &gt; 終了なら逆順に読み込みます（例: gen 999,1,100）。rank は 0 = 最良（CLI と同じ）。秒を空欄にすると保存時のエピソード長で再生します。個体は手前から 1 m 間隔で奥へ並びます。</p>
+    <p class="note">gen/rank は「開始,終了,間隔」(開始のみでも可)。開始 &gt; 終了なら逆順に読み込みます（例: gen 999,1,100）。rank は 0 = 最良（CLI と同じ）。秒を空欄にすると保存時のエピソード長で再生します。ケースはカンマ区切りで複数指定できます（例: 010, 011）。読み込めない個体はエラー表示し、残りは読み込みます。個体は手前から 1 m 間隔で奥へ並びます。</p>
     <p class="apiState" id="replayStatus"><span class="dot"></span><span id="replayStatusText">未接続</span></p>
     <p class="note err" id="replayDetail" hidden></p>
 
