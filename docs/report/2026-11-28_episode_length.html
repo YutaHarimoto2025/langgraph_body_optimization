@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>報告 2026-11-28｜エピソード時間 5 / 10 / 20 秒</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background:#232323; color:#ededed; }
+  body { max-width:56rem; margin:auto; padding:1.5rem 1rem 3rem; line-height:1.75; }
+  h2 { margin-top:2.25rem; border-bottom:1px solid #888; padding-bottom:.3rem; }
+  a { color:#9eceff; }
+  table { border-collapse:collapse; width:100%; background:#303030; margin:.8rem 0; }
+  th,td { border:1px solid #888; padding:.55rem; text-align:left; vertical-align:top; }
+  thead th { background:#3d3d3d; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:.9em; background:#363636; padding:0 .25em; border-radius:3px; }
+  .lead { border-left:.25rem solid #85d6bf; padding:.75rem 1rem; background:#293a36; }
+  .note { font-size:.88rem; color:#a6abb1; }
+  .warn { border-left:.25rem solid #e0b685; padding:.75rem 1rem; background:#3a352d; }
+  .toc { display:flex; flex-wrap:wrap; gap:.4rem 1.25rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>報告 2026-11-28｜エピソード時間 5 / 10 / 20 秒</h1>
+  <p class="note">commit a5dafbd (dirty: false)｜tags run-010, run-011, run-012｜生データ: <code>resources/runs/010..012/</code></p>
+  <p class="lead">5 秒・10 秒・20 秒で同じ GA を回した。最良距離は 9.44 / 19.18 / 21.15 m。10 秒個体は 20 秒に延長しても 31.05 m と持続したが、20 秒個体は記録 21.15 m に対して replay が 15.96 m（25% 低い）で、20 秒では記録スコアの再現性が崩れた。</p>
+  <nav class="toc">
+    <a href="#purpose">目的</a>
+    <a href="#feature">追加機能</a>
+    <a href="#setup">実験設定</a>
+    <a href="#resources">資源と時間</a>
+    <a href="#results">主要な結果</a>
+    <a href="#analysis">分析</a>
+    <a href="#todo">todo との照合</a>
+  </nav>
+</header>
+<main>
+<section id="purpose">
+  <h2>目的</h2>
+  <p>エピソード時間を延ばすと、走行開始の過渡ではなく持続的な移動が評価に効くか。あわせて、時間を延ばしたときに同一遺伝子の再現性（chaos）が保たれるかを確認する。5 秒で再現性を確認できた場合のみ 10・20・40 秒へ進む条件とした。</p>
+</section>
+
+<section id="feature">
+  <h2>追加機能</h2>
+  <p>run 009 からの変更: 辺ごとの剛性遺伝子（500〜5000 N/m、対数）、RK4（dt 2.5 ms）、接触剛性 5000 N/m・臨界減衰 141.42。摩擦と接触減衰の設定は 009 と同じ。</p>
+</section>
+
+<section id="setup">
+  <h2>実験設定</h2>
+  <table>
+    <tr><th>項目</th><th>値</th></tr>
+    <tr><td>身体・筋肉</td><td>6 質点・11 辺、辺剛性 500〜5000 N/m、振幅 0〜100 N、周波数 0.1〜1 Hz、位相</td></tr>
+    <tr><td>物理</td><td>RK4、dt 2.5 ms、接触 5000 N/m、ζ=0.1、μ=0.7</td></tr>
+    <tr><td>GA</td><td>集団 10,000、1,000 世代、seed 0、移民 20%、summary 記録</td></tr>
+    <tr><td>エピソード</td><td>5 秒（010）、10 秒（011）、20 秒（012）</td></tr>
+  </table>
+  <pre><code>uv run python -m bodyopt evolve --pop-size 10000 --generations 1000 --seed 0 \
+    --episode &lt;5|10|20&gt; --record summary --out resources/runs/0xx</code></pre>
+</section>
+
+<section id="resources">
+  <h2>資源と時間</h2>
+  <table>
+    <tr><th>run</th><th>時間</th><th>VRAM ピーク</th></tr>
+    <tr><td>010 (5 s)</td><td>104 秒</td><td>約 2 GB</td></tr>
+    <tr><td>011 (10 s)</td><td>204 秒</td><td>約 2 GB</td></tr>
+    <tr><td>012 (20 s)</td><td>407 秒</td><td>約 2 GB</td></tr>
+  </table>
+  <p class="note">履歴メモリはエピソード長に依存せず、世代数 × 集団で決まる。</p>
+</section>
+
+<section id="results">
+  <h2>主要な結果</h2>
+  <table>
+    <tr><th>run</th><th>記録スコア</th><th>chaos 幅</th><th>replay との差</th></tr>
+    <tr><td>010 (5 s)</td><td>9.436 m</td><td>0.000 m</td><td>−0.0006 m (0.01%)</td></tr>
+    <tr><td>011 (10 s)</td><td>19.183 m</td><td>0.000 m</td><td>−0.021 m (0.1%)</td></tr>
+    <tr><td>012 (20 s)</td><td>21.149 m</td><td>0.000 m</td><td><strong>−5.19 m (25%)</strong></td></tr>
+  </table>
+  <p class="warn">012 は同一経路内のばらつきは 0 だが、GA の一括評価と replay の単体評価で 25% ずれた。20 秒では記録スコアを再現できない。</p>
+
+  <h3>同じ 20 秒ホライズンでの区間距離</h3>
+  <table>
+    <tr><th>run（学習した時間）</th><th>0–5 s</th><th>5–10 s</th><th>10–15 s</th><th>15–20 s</th><th>合計</th></tr>
+    <tr><td>010（5 s）</td><td>9.44</td><td>1.72</td><td>−0.18</td><td>−0.20</td><td>10.78</td></tr>
+    <tr><td>011（10 s）</td><td>8.45</td><td>10.69</td><td>7.93</td><td>3.98</td><td><strong>31.05</strong></td></tr>
+    <tr><td>012（20 s）</td><td>4.87</td><td>4.41</td><td>4.89</td><td>1.93</td><td>16.09</td></tr>
+  </table>
+</section>
+
+<section id="analysis">
+  <h2>分析</h2>
+  <p>5 秒個体は 5 秒以降に失速し、20 秒では 10.8 m しか進まない。5 秒のスコアは走行開始の加速を評価しており、持続移動の指標になっていない。</p>
+  <p>10 秒個体は 20 秒に延長しても 31.05 m と最も持続した。一方、20 秒で学習した個体は 16.09 m で、10 秒個体より遅い。20 秒の評価は、接触カオスの増幅で一括評価と単体評価が 25% ずれ、選択自体が不安定になっていた可能性が高い。</p>
+  <p>総距離を延ばすだけでは、最初の加速の寄与は消えない。持続走行を評価するなら、後半区間の距離（例: 最後の 5 秒）を適応度にするのが確実である。周期走行を主張するなら、辺ごとの周波数が作るビート（この設定では 12.7〜33 秒）より長い区間か、周波数の共通基底制約が必要になる。</p>
+</section>
+
+<section id="todo">
+  <h2>todo との照合</h2>
+  <ul>
+    <li>40 秒の run は、20 秒で再現性が崩れたため条件どおり中止した。</li>
+    <li>20 秒以上を使うなら、dt 1.25 ms かアンサンブル評価でばらつきを抑える。</li>
+    <li>持続走行を目的にするなら、fitness を後半区間の距離に変える（ホライズンは全比較で固定）。</li>
+    <li>周期の定義（共通周波数制約か自己相関の診断）は未着手。</li>
+  </ul>
+</section>
+</main>
+</body>
+</html>
