@@ -8,6 +8,7 @@ replay して /tmp/bodyopt-viewer に軌跡 JSON を書き出す API を提供�
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -23,17 +24,20 @@ TEMP_DIR = Path(tempfile.gettempdir()) / "bodyopt-viewer"
 def parse_step_spec(text: str) -> list[int]:
     """'1,100,10' を [1, 11, ..., 91] に展開する。数値 1 つなら単一値。
 
-    '1,3' のように 2 つなら 1..3 (間隔 1) とみなす。
+    '1,3' のように 2 つなら 1..3 (間隔 1) とみなす。開始 > 終了なら降順に展開し、
+    読み込み順（レーンの手前からの順）もそのまま逆になる。
     """
     nums = [int(s) for s in text.replace(" ", "").split(",") if s]
     if not nums:
         raise ValueError("数値の指定が空です")
     if len(nums) == 1:
         return nums
-    step = nums[2] if len(nums) > 2 else 1
-    if step <= 0:
-        raise ValueError("間隔は正の整数にしてください")
-    return list(range(nums[0], nums[1] + 1, step))
+    start, end = nums[0], nums[1]
+    direction = 1 if end >= start else -1
+    step = abs(nums[2]) if len(nums) > 2 else 1
+    if step == 0:
+        raise ValueError("間隔は 0 以外にしてください")
+    return list(range(start, end + direction, direction * step))
 
 
 def _resolve_run(case: str) -> Path:
@@ -79,46 +83,72 @@ class _Handler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b"{}")
             case = str(body.get("case", "")).strip()
             gens = parse_step_spec(str(body.get("gens", "0")))
-            ranks = parse_step_spec(str(body.get("ranks", "1")))
+            ranks = parse_step_spec(str(body.get("ranks", "0")))
+            raw_seconds = body.get("seconds")
+            seconds: float | None = None
+            if raw_seconds not in (None, ""):
+                try:
+                    seconds = float(raw_seconds)
+                except (TypeError, ValueError):
+                    raise ValueError("秒数は数値で指定してください") from None
+                if seconds <= 0:
+                    raise ValueError("秒数は正の値にしてください")
             if not case:
                 raise ValueError("ケース名が空です")
             if not gens or not ranks:
                 raise ValueError("gen/rank の範囲が空です (開始 <= 終了)")
             if min(gens) < 0:
                 raise ValueError("gen は 0 以上にしてください")
-            if min(ranks) < 1:
-                raise ValueError("rank は 1 始まりです (1 = 最良)")
+            if min(ranks) < 0:
+                raise ValueError("rank は 0 始まりです (0 = 最良)")
             run_dir = _resolve_run(case)
         except (ValueError, AttributeError) as e:
             self._json({"items": [], "errors": [], "error": str(e)}, status=400)
             return
 
-        from .cli import replay_batch
+        import subprocess
 
-        # 全個体を 1 回の vmap rollout でまとめて再生する (個体ごとにプロセスを分けない)
-        pairs = [(g, r) for g in gens for r in ranks]  # API の rank は 1 始まり
-        targets = [(g, r - 1) for g, r in pairs]
+        # 子プロセスで replay する。常に現在のソースコードが使われ、
+        # 編集のたびにサーバーを再起動する必要がない。
+        pairs = [(g, r) for g in gens for r in ranks]
         labels = [f"{run_dir.name}_gen{g}_rank{r}" for g, r in pairs]
-        print(f"[viewer] replay {run_dir.name} gens={gens} ranks={ranks} ({len(targets)} 個体)")
+        print(f"[viewer] replay {run_dir.name} gens={gens} ranks={ranks} ({len(pairs)} 個体)")
+        cmd = [
+            sys.executable, "-m", "bodyopt", "_replay-worker",
+            "--run", str(run_dir),
+            "--targets", json.dumps(pairs),
+            "--labels", json.dumps(labels),
+            "--out", str(TEMP_DIR),
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]
+            self._json(
+                {"items": [], "errors": [], "error": "replay に失敗: " + " / ".join(detail)},
+                status=500,
+            )
+            return
         try:
-            outcomes = replay_batch(run_dir, targets, TEMP_DIR, labels)
-        except Exception as e:  # 予期しない失敗は UI に見せる (サーバーは落とさない)
-            self._json({"items": [], "errors": [], "error": f"replay に失敗: {e}"}, status=500)
+            results = json.loads(proc.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError) as e:
+            self._json({"items": [], "errors": [], "error": f"replay 出力の解析に失敗: {e}"}, status=500)
             return
 
         items: list[dict[str, Any]] = []
         errors: list[str] = []
-        for (g, r), outcome in zip(pairs, outcomes):
-            if outcome.path is None:
-                errors.append(f"{run_dir.name} gen{g} rank{r}: {outcome.error}")
+        for res in results:
+            if not res.get("path"):
+                errors.append(
+                    f"{run_dir.name} gen{res['generation']} rank{res['rank']}: {res.get('error')}"
+                )
                 continue
             items.append({
                 "case": run_dir.name,
-                "gen": g,
-                "rank": r,
-                "score": round(outcome.score, 6),
-                "distance": round(outcome.distance, 6),
-                "url": f"/_api/tmp/{outcome.path.name}",
+                "gen": res["generation"],
+                "rank": res["rank"],
+                "score": round(res["score"], 6),
+                "distance": round(res["distance"], 6),
+                "url": f"/_api/tmp/{Path(res['path']).name}",
             })
         self._json({"items": items, "errors": errors})
 
@@ -154,6 +184,12 @@ class _Handler(SimpleHTTPRequestHandler):
         # 静的ファイルの取得は黙らせ、API とエラーだけ残す
         if self.path.startswith("/_api/"):
             print(f"[viewer] {self.address_string()} {format % args}")
+
+
+def source_fingerprint() -> float:
+    """サーバー側モジュールの最終更新時刻。変更検知に使う。"""
+    root = Path(__file__).resolve().parent
+    return max((f.stat().st_mtime for f in root.glob("*.py")), default=0.0)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:

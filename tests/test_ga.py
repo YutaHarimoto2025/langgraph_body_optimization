@@ -25,7 +25,7 @@ class Test初期集団:
         key = jax.random.PRNGKey(0)
         pop = random_population(key, 32, n_m, GENE_HI)
         arr = np.asarray(pop)
-        assert arr.shape == (32, 3 * n_m)
+        assert arr.shape == (32, 4 * n_m)
         assert (arr[:, :n_m] >= 0.0).all()
         assert (arr[:, :n_m] <= GENE_HI).all()
         assert (arr[:, n_m : 2 * n_m] >= 0.1 - 1e-6).all()
@@ -58,7 +58,7 @@ class Test移民:
         new_pop = inject_worst(pop, jnp.arange(20.0), jax.random.PRNGKey(6), 5, GENE_HI)
         arr = np.asarray(new_pop)
         base = np.asarray(pop)
-        assert arr.shape == (20, 3 * n_m)
+        assert arr.shape == (20, 4 * n_m)
         # 下位 5 個体だけが置換され、残りは変わらない
         assert not np.allclose(arr[:5], base[:5])
         np.testing.assert_allclose(arr[5:], base[5:])

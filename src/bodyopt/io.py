@@ -126,7 +126,7 @@ def creature_from_summary(c: dict[str, Any]) -> CreatureSpec:
 
 
 #: 遺伝子ブロック (振幅・周波数・位相) と、σ を出す選択群 (上位 1%・10%・全個体)。
-_GENE_TYPES = (("amplitude", 0), ("frequency", 1), ("phase", 2))
+_GENE_TYPES = (("amplitude", 0), ("frequency", 1), ("phase", 2), ("stiffness", 3))
 _GENE_GROUPS = (("top1", 0.01), ("top10", 0.10), ("all", 1.0))
 
 
@@ -157,14 +157,16 @@ def _gene_sigma(pop: np.ndarray, scores: np.ndarray) -> dict[str, dict[str, list
     エッジ間のばらつきになる。無効個体も順位どおり含める。
     """
     n_gen, n_pop, length = pop.shape
-    n_m = length // 3
-    out = {name: {group: [] for group, _ in _GENE_GROUPS} for name, _ in _GENE_TYPES}
+    n_blocks = 4 if length % 4 == 0 else 3
+    n_m = length // n_blocks
+    types = [t for t in _GENE_TYPES if t[1] < n_blocks]
+    out = {name: {group: [] for group, _ in _GENE_GROUPS} for name, _ in types}
     for gi in range(n_gen):
         order = np.argsort(scores[gi])[::-1]
         for group, frac in _GENE_GROUPS:
             k = max(1, int(np.ceil(frac * n_pop)))
             idx = order[:k]
-            for name, block in _GENE_TYPES:
+            for name, block in types:
                 vals = pop[gi][idx, block * n_m : (block + 1) * n_m]
                 out[name][group].append(round(float(vals.std()), 5))
     return out
@@ -260,12 +262,13 @@ def save_run(
 
 
 def save_trajectory(
-    out_dir: Path, traj, gene: np.ndarray, label: str
+    out_dir: Path, traj, gene: np.ndarray, label: str, episode: float | None = None
 ) -> Path:
     """replay 用の生ロールアウト。数値は 4 桁に丸めて軽量化。"""
     path = out_dir / f"trajectory_{label}.json"
     payload = {
         "label": label,
+        "episode": episode,
         "gene": gene.round(6).tolist(),
         "times": np.asarray(traj.times).round(4).tolist(),
         "pos": np.asarray(traj.pos).round(4).tolist(),

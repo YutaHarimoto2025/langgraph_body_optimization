@@ -30,7 +30,7 @@ def _flat_gene(spec, amp=0.0):
 class Test重力:
     def test_自由落下は重力加速度に一致(self, spec):
         """非接地・無駆動なら重心は半陰的オイラーの放物運動をする。"""
-        p = SimParams(episode_seconds=0.08)  # 16 ステップ、最下点は床に届かない
+        p = SimParams(episode_seconds=0.08, integrator="semi_implicit_euler")  # 16 ステップ
         r = rollout(_flat_gene(spec), spec, p)
         com_y = np.asarray(com_trajectory(r.pos, spec))[:, 1]
         n = np.arange(p.n_steps + 1, dtype=np.float32)

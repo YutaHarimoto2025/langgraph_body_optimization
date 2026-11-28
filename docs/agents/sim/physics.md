@@ -36,7 +36,7 @@ $$T_e = k_e\,(L_e - \bar L_e) + F_e^{A}(t)$$
 
 ## 積分
 
-第一候補は半陰的オイラー法 (既定 dt = 5 ms、episode 5 秒 = 1000 ステップ)。RK4 を比較候補として同ファイルに実装する。tests/regression/test_integration_scheme.py で次を検証する。
+既定は RK4 (dt = 2.5 ms、episode 5 秒 = 2000 ステップ)。半陰的オイラーも `SimParams.integrator` (params の `sim.integrator`) で切り替えられる。等コスト比較 (オイラー dt 1.25 ms 対 RK4 dt 2.5 ms) では、RK4 のほうがカオス感度が 3.7 倍低く、保存系のエネルギー誤差も 2 桁小さい。tests/regression/test_integration_scheme.py で次を検証する。
 
 - 無駆動個体は dt 5 ms ↔ 2.5 ms ↔ RK4 で距離差 1 cm 未満。
 - ランダム位相の駆動個体 (20〜40 N) は 0.01〜0.06 m で、差は 5 cm 未満。位相が揃った個体は踏切の位相が刻みに敏感になり得るため、GA 最良個体の刻み依存性は tests/regression/test_best_individual_scheme.py で測る。
@@ -64,7 +64,7 @@ $$T_e = k_e(L_e - \bar L_e) + F_e^{A}(t) + c_e \dot L_e, \qquad c_e = 2\zeta\sqr
 $$F_i^{N} = \max\left(0,\ k_c \max(0, -y_i) - c_c \min(0, \dot y_i)\right) \cdot \mathbb{1}[y_i < 0]$$
 
 - 減衰項は接触中 ($y_i < 0$) だけ効かせる。接触していない落下中の質点に減衰を掛けると、空気抵抗のような上向きの力が出て自由落下が遅れる (終端速度 $mg/c_c$)。run 003 の準備中に修正した。
-- 接触減衰は臨界減衰 $c_c = 2\sqrt{k_c m} \approx 89.4$ N·s/m を既定とする。初値 50 は不足減衰で接触面のトランポリン化を助長した (報告 2026-11-23)。
+- 接触剛性は $k_c = 5000$ N/m、減衰は臨界減衰 $c_c = 2\sqrt{k_c m} \approx 141.4$ N·s/m を既定とする。$k_c$ を 20000 から 5000 に下げると、同一遺伝子の $10^{-6}$ 摂動感度が 0.80 m から 0.0007 m に下がった (RK4・ζ=0.1)。接触減衰を下げるとバウンドは残りやすいが、感度は非単調に悪化する場合がある ($c_c$=71 で 0.18 m)。
 - 滑らかなクーロン摩擦 (sgn を tanh で近似、静止摩擦は再現しない):
 
 $$F_i^{f} = -\mu F_i^{N} \tanh(\dot x_i / v_\epsilon), \quad v_\epsilon = 0.05\ \mathrm{m/s}$$

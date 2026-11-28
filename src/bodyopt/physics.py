@@ -25,21 +25,25 @@ Integrator = Literal["semi_implicit_euler", "rk4"]
 #: 長さ計算のゼロ除算防止。実際の無効判定は fitness 側で行う。
 _LEN_EPS = 1e-9
 
+#: 辺剛性の遺伝子範囲 [N/m]。対数スケールで持つ。
+STIFFNESS_MIN = 500.0
+STIFFNESS_MAX = 5000.0
+
 
 @dataclass(frozen=True)
 class SimParams:
     """ケース非依存の物理パラメータ (params/default.json と対応)。"""
 
     gravity: float = 9.81
-    dt: float = 0.005
+    dt: float = 0.0025
     episode_seconds: float = 5.0
-    k_contact: float = 20000.0
-    c_contact: float = 282.84  # 2√(k_c·m) 臨界減衰: バウンドの非物理的な継続を抑える
+    k_contact: float = 5000.0  # 接触剛性。硬いほど衝突が鋭くカオス感度が上がる
+    c_contact: float = 141.42  # 2√(k_c·m) 臨界減衰
     mu_friction: float = 0.7
     friction_vel_eps: float = 0.05
     muscle_model: str = "active_force"  # models.MODELS のキー
     edge_damping_ratio: float = 0.0  # 辺の軸方向粘性減衰の減衰比 ζ (0 で減衰なし)
-    integrator: Integrator = "semi_implicit_euler"
+    integrator: Integrator = "rk4"
 
     @property
     def n_steps(self) -> int:
@@ -125,8 +129,13 @@ def _make_step(
     """1 ステップの物理を組み立てる。rollout (全フレーム記録) と summary (集計のみ) で共有。"""
     muscle_idx = spec.muscle_idx
     n_m = int(muscle_idx.shape[0])
-    amp, freq, phase = gene[:n_m], gene[n_m : 2 * n_m], gene[2 * n_m :]
-    edges, stiffness, base_rest = spec.edges, spec.stiffness, spec.rest_lengths
+    amp, freq, phase = gene[:n_m], gene[n_m : 2 * n_m], gene[2 * n_m : 3 * n_m]
+    edges, base_rest = spec.edges, spec.rest_lengths
+    if gene.shape[0] >= 4 * n_m:
+        # [A][f][phi][log k]: 剛性は 500〜5000 N/m の対数スケール
+        stiffness = STIFFNESS_MIN * (STIFFNESS_MAX / STIFFNESS_MIN) ** gene[3 * n_m : 4 * n_m]
+    else:
+        stiffness = spec.stiffness  # 旧形式 (3 ブロック) は身体定義の剛性を使う
     masses_inv = 1.0 / spec.masses
     dt = p.dt
     g_vec = jnp.array([0.0, -p.gravity], dtype=spec.base_pos.dtype)

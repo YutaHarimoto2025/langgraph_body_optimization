@@ -68,7 +68,7 @@ run 名は  resources/runs/<name>/  のディレクトリ名にしかない。�
 
 1. 実装後は「静的テスト → 短い GA run による動的テスト → 合意仕様の docs 正本化」を徹底する。first goal の段階では長い GA を回さない (数分で終わる動作確認まで)。
 2. 新しい実験設定 (params・身体・物理・評価式) で run を回したら、結果を採用する前に最良個体で `chaos` を測る。同じ条件の反復シミュレーションで距離の幅が max(5 mm, 平均の 1%) を超えたら、カオスが結果に効いているとみなす。その場合は report に幅と `dt` を明記し、`dt` を細かくする・減衰を見直す・設定間の比較を平均と分布で行う、のいずれかで対処する。旧形式の run は遺伝子長が合わず測れないので、当時のコードで測る。
-3. 新機能や数値実験のたびに docs/report/ に HTML 報告を書く。ファイル名は `YYYY-MM-DD_topic.html` とする。項目は「目的・追加機能・実験設定・RAM/VRAM ピークと計算時間・主要結果・分析と先行研究との差異・todo との照合」。全項目を同じ詳細度で書かず、その回で新規なことに詳細を割く。
+3. 新機能や数値実験のたびに docs/report/ に HTML 報告を書く。`docs/report/template.html` を複製し、ファイル名は `YYYY-MM-DD_topic.html` とする。見出しは「目的・追加機能・実験設定・資源と時間・主要な結果・分析・todo との照合」で、目次と完全に一致させる。項目ごとの分量は回の重点に合わせて変えてよい。
 4. 報告 HTML に軌跡データを埋め込み、Canvas で個体の動きを再生する。再生・一時停止ボタンと水平シークバーを図の下に置く。サーバーや動画コーデックは不要。
 5. src の実装 review を定期的に行い docs/reviews/ に置く。ファイル名は `standard_YYYY-MM-DD.html`。書式は docs/reviews/template.html を複製する。対応が完了した review は docs/reviews/archive/ へ移動し、script のパスを ../../open/assets/html-state.js に直す。
 6. 人間が操作する HTML は docs/open/assets/html-state.js で状態を保存する (祖先に data-persist、末尾に script)。

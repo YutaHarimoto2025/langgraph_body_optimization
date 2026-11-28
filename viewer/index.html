@@ -12,6 +12,8 @@
     #panel { background: #232529; border-left: 1px solid #3a3d42; padding: 1rem 1.25rem; overflow-y: auto; }
     h1 { font-size: 1.05rem; margin: 0 0 .9rem; }
     h2 { font-size: .9rem; margin: 1.2rem 0 .5rem; color: #c9cdd2; border-bottom: 1px solid #3a3d42; padding-bottom: .3rem; }
+    h2.major { font-size: 1.05rem; color: #ededed; margin: 1.6rem 0 .4rem; border-bottom: 2px solid #56606b; padding-bottom: .4rem; }
+    h3 { font-size: .85rem; margin: 1rem 0 .3rem; color: #c9cdd2; }
     button { font: inherit; padding: .35rem .8rem; cursor: pointer; color: #ededed; background: #303338; border: 1px solid #565b63; border-radius: .3rem; }
     button:hover, button:focus-visible { background: #3a3e45; }
     button:disabled { opacity: .5; cursor: progress; }
@@ -23,11 +25,17 @@
     .val { font-family: ui-monospace, monospace; font-size: .85rem; color: #9eceff; }
     table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .4rem; }
     th, td { border: 1px solid #3a3d42; padding: .3rem .45rem; text-align: left; }
-    th { background: #2a2d31; font-weight: 600; }
+    th { background: #2a2d31; font-weight: 600; white-space: nowrap; }
+    .thSub { font-size: .75rem; font-weight: 500; color: #a6abb1; }
     .note { font-size: .8rem; color: #a6abb1; }
     .err { color: #e08d85; }
     .apiState { display: flex; align-items: center; gap: .4rem; margin: .55rem 0 0; font-size: .8rem; color: #a6abb1; }
     .apiState .dot { width: .5rem; height: .5rem; border-radius: 50%; background: #6b7078; flex: none; }
+    .sliderWrap { position: relative; }
+    #slider { display: block; height: 16px; margin: 0; }
+    #episodeMarks { position: absolute; top: 0; bottom: 0; left: 8px; right: 8px; pointer-events: none; }
+    .epMark { position: absolute; top: 2px; height: 12px; width: 2px; margin-left: -1px; background: #5b9bff; }
+    .epCheck { position: absolute; width: 14px; height: 14px; margin: 0; transform: translateX(-50%); accent-color: #5b9bff; pointer-events: auto; }
     .apiState.ok { color: #a3ecd7; }
     .apiState.ok .dot { background: #5fd3a6; box-shadow: 0 0 5px #5fd3a6aa; }
     .apiState.busy { color: #e6c98a; }
@@ -47,25 +55,31 @@
   <aside id="panel" data-persist>
     <h1>bodyopt 軌跡ビューア <span class="badge">2D sim / 3D view</span></h1>
 
-    <h2>replay で読み込む</h2>
+    <h2 class="major">インポート</h2>
+
+    <h3>replay で読み込む</h3>
     <div class="row">
       <label style="margin:0">ケース <input type="text" id="caseName" list="caseList" placeholder="008" class="txt" style="width:4.5rem"></label>
       <datalist id="caseList"></datalist>
       <label style="margin:0">gen <input type="text" id="genSpec" placeholder="1,100,10" class="txt" style="width:6.5rem"></label>
     </div>
     <div class="row">
-      <label style="margin:0">rank <input type="text" id="rankSpec" placeholder="1,3" class="txt" style="width:4.5rem"></label>
+      <label style="margin:0">rank <input type="text" id="rankSpec" placeholder="0,2" class="txt" style="width:4.5rem"></label>
+      <label style="margin:0">秒 <input type="text" id="secondsSpec" placeholder="既定 = エピソード" class="txt" style="width:7.5rem"></label>
+    </div>
+    <div class="row">
       <button id="loadReplay">読込</button>
       <button id="clearAll">全削除</button>
     </div>
-    <p class="note">gen/rank は「開始,終了,間隔」(開始のみでも可)。rank は 1 = 最良。replay 結果は一時ディレクトリに置き、個体は y 方向に等間隔で積み上げます。</p>
+    <p class="note">gen/rank は「開始,終了,間隔」(開始のみでも可)。開始 &gt; 終了なら逆順に読み込みます（例: gen 999,1,100）。rank は 0 = 最良（CLI と同じ）。秒を空欄にすると保存時のエピソード長で再生します。個体は手前から 1 m 間隔で奥へ並びます。</p>
     <p class="apiState" id="replayStatus"><span class="dot"></span><span id="replayStatusText">未接続</span></p>
+    <p class="note err" id="replayDetail" hidden></p>
 
-    <h2>軌跡 JSON のパス</h2>
+    <h3>軌跡 JSON のパス</h3>
     <div class="row"><input type="text" id="url" class="txt" placeholder="resources/runs/&lt;name&gt;/trajectory_*.json" style="flex:1"><button id="loadUrl">読込</button></div>
     <p class="note" id="status">未読み込み</p>
 
-    <h2>再生</h2>
+    <h2 class="major">再生</h2>
     <div class="row">
       <button id="play">▶ 再生</button>
       <button id="stepB">◀ 1</button>
@@ -73,30 +87,39 @@
       <button id="reset">⏮ 先頭</button>
     </div>
     <label>時刻 <span id="tLabel" class="val">-</span></label>
-    <input type="range" id="slider" min="0" max="0" step="1" value="0">
+    <div class="sliderWrap">
+      <input type="range" id="slider" min="0" max="0" step="1" value="0">
+      <div id="episodeMarks"></div>
+    </div>
     <div class="row"><label style="margin:0">速度 <input type="range" id="speed" min="0.1" max="4" step="0.1" value="1" style="width:8rem"></label><span class="val" id="speedLabel">1.0×</span></div>
     <div class="row">
       <label style="margin:0"><input type="checkbox" id="showCom" checked> 重心軌跡</label>
-      <label style="margin:0"><input type="checkbox" id="showContact" checked> 接触点</label>
     </div>
 
-    <h2>その時刻の状態 <span class="note" id="statTarget"></span></h2>
+    <h2 class="major">個体情報 <span class="note" id="statTarget"></span></h2>
+
+    <h3>固定情報</h3>
     <table>
+      <tr><th>label</th><td id="pLabel">-</td></tr>
+      <tr><th>重心最大移動距離<br><span class="thSub">（エピソード終端）</span></th><td class="val" id="maxCom">-</td></tr>
+      <tr><th>後端最大移動距離<br><span class="thSub">（エピソード終端）</span></th><td class="val" id="maxDist">-</td></tr>
+      <tr><th>フレーム数</th><td id="pFrames">-</td></tr>
+      <tr><th>dt</th><td id="pDt">-</td></tr>
+    </table>
+    <p class="note">固定情報は replay の延長区間を除く。移動距離は t=0 の重心・後端との差。</p>
+
+    <h3>その時刻の状態</h3>
+    <table>
+      <tr><th>時刻</th><td class="val" id="statTime">-</td></tr>
       <tr><th>重心 x</th><td class="val" id="comX">-</td></tr>
       <tr><th>重心 y</th><td class="val" id="comY">-</td></tr>
-      <tr><th>距離 (後端, t=0 比)</th><td class="val" id="distX">-</td></tr>
+      <tr><th>重心移動距離</th><td class="val" id="comDist">-</td></tr>
+      <tr><th>後端移動距離</th><td class="val" id="distX">-</td></tr>
       <tr><th>接触質点数</th><td class="val" id="nContact">-</td></tr>
       <tr><th>駆動仕事 (累積)</th><td class="val" id="energy">-</td></tr>
     </table>
 
-    <h2>個体情報</h2>
-    <table>
-      <tr><th>label</th><td id="pLabel">-</td></tr>
-      <tr><th>最大距離 (後端)</th><td id="maxDist">-</td></tr>
-      <tr><th>フレーム数</th><td id="pFrames">-</td></tr>
-      <tr><th>dt</th><td id="pDt">-</td></tr>
-    </table>
-    <h2>遺伝子 (エッジ別)</h2>
+    <h3>遺伝子 (エッジ別)</h3>
     <label style="margin:.5rem 0"><input type="checkbox" id="showEdgeIds"> エッジ番号を3Dに表示</label>
     <div id="geneChartWrap" style="overflow-x:auto; overflow-y:hidden; max-width:100%">
       <canvas id="geneChart" width="360" height="330"></canvas>
@@ -130,9 +153,10 @@
       return tex;
     }
 
-    // 個体の配置: 1 個目は (5, 0, 1)、以降は z を 1 m ずつ奥へ
+    // 個体の配置: 1 個目は手前から 1 m、以降は 1 m ずつ奥へ。
+    // three.js は +z がカメラ手前なので、奥へ進むほど z は小さくなる。
     const X_OFFSET = 5;
-    const Z_START = 1;
+    const Z_START = -1;
     const Z_SPACING = 1.0;
 
     // ---------- シーン ----------
@@ -163,7 +187,8 @@
       controls.update();
     }
     function frontView() {
-      placeCamera(new THREE.Vector3(X_OFFSET + 0.5, 0.5, Z_START), 7.0);
+      // 床の手前の端に視点を置き、原点側から奥を見る
+      placeCamera(new THREE.Vector3(3.5, 0.5, -6), 13.0);
     }
     frontView();
     addEventListener("keydown", e => { if (e.key === "r" || e.key === "R") frontView(); });
@@ -177,60 +202,33 @@
       new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1, metalness: 0 })
     );
     floor.rotation.x = -Math.PI / 2;
+    // 原点が格子の左手前の角に来るよう、床を +x / -z 方向へ広げる (+z はカメラ手前)
+    floor.position.set(FLOOR_SIZE / 2, 0, -FLOOR_SIZE / 2);
     scene.add(floor);
+
+    // スタートライン (個体の初期位置 x = X_OFFSET) をオレンジの太線で示す
+    const startLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.1, FLOOR_SIZE),
+      new THREE.MeshBasicMaterial({ color: 0xff8c1a })
+    );
+    startLine.rotation.x = -Math.PI / 2;
+    startLine.position.set(X_OFFSET, 0.003, -FLOOR_SIZE / 2);
+    scene.add(startLine);
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
     key.position.set(3, 6, 4);
     scene.add(key);
 
-    // ---------- 着地エフェクト ----------
-    // 床 (y=0) に接した瞬間、接触点から広がって消えるリングを出す
-    const IMPACT_LIFE = 0.45, IMPACT_POOL = 48;
-    // スプライトは常にカメラを向くので、正面図でも床板の真上でもリングが見える
-    const impactTex = (() => {
-      const size = 64, c = document.createElement("canvas");
-      c.width = c.height = size;
-      const g = c.getContext("2d");
-      g.strokeStyle = "#ffffff"; g.lineWidth = 8;
-      g.beginPath(); g.arc(size / 2, size / 2, size / 2 - 6, 0, Math.PI * 2); g.stroke();
-      return new THREE.CanvasTexture(c);
-    })();
-    const impacts = [];
-    for (let i = 0; i < IMPACT_POOL; i++) {
-      const m = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: impactTex, color: 0xffa64d, transparent: true, opacity: 0, depthWrite: false,
-      }));
-      m.visible = false;
-      scene.add(m);
-      impacts.push({ mesh: m, t: Infinity });
-    }
-    let impactCursor = 0;
-    function spawnImpact(x, z) {
-      const e = impacts[impactCursor++ % impacts.length];
-      e.t = 0;
-      e.mesh.position.set(x, 0.03, z);
-      e.mesh.scale.set(0.07, 0.07, 1);
-      e.mesh.visible = true;
-    }
-    function stepImpacts(dt) {
-      for (const e of impacts) {
-        if (e.t >= IMPACT_LIFE) continue;
-        e.t += dt;
-        const s = Math.min(1, e.t / IMPACT_LIFE);
-        const k = 0.07 + s * 0.33;
-        e.mesh.scale.set(k, k, 1);
-        e.mesh.material.opacity = 0.85 * (1 - s) ** 2;
-        if (s >= 1) e.mesh.visible = false;
-      }
-    }
-
     // ---------- 状態 ----------
     const LABEL_X = -1.05;   // ラベルの右端を置く xy 面上の x (x < -1)
-    const LABEL_DY = 0.62;   // ラベルの高さ [m]
+    const LABEL_DY = 0.26;   // ラベルの中心の高さ [m] (下端が床に接地する)
     const individuals = [];  // 読み込んだ軌跡 (1 個体 = 1 グループ)
-    let selected = null, tNow = 0, playing = false, lastT = null, lastTick = null;
+    let episodeChecks = new Map();
+    let selected = null, tNow = 0, playing = false, lastT = null;
     let serverRoot = null;   // サーバー配信時のリポジトリルート (絶対パス解決用)
     let apiBase = "";        // replay API のベース URL (空なら同一オリジン)
+    let apiReady = false;    // replay API に接続できているか
+    let apiRetry = null;     // 未接続のときの再接続タイマー
     // VS Code プレビューは vscode-webview:// で開くため、同一オリジンに API が無い。
     // 既定ポートの bodyopt viewer に cross-origin で繋ぐ。
     const API_FALLBACK = "http://127.0.0.1:8765";
@@ -240,6 +238,7 @@
     const status = el("status");
     const replayStatus = el("replayStatus");
     const replayStatusText = el("replayStatusText");
+    const replayDetail = el("replayDetail");
 
     function setStatus(msg, isErr = false) { status.textContent = msg; status.className = isErr ? "err" : "note"; }
     // tone: "ok" (接続) / "busy" (実行中) / "err" / "info"。detail はツールチップに出す。
@@ -247,6 +246,11 @@
       replayStatusText.textContent = msg;
       replayStatus.className = "apiState " + tone;
       replayStatus.title = detail;
+    }
+    // 失敗理由はツールチップだけでなく本文にも出す
+    function setReplayDetail(msg) {
+      replayDetail.hidden = !msg;
+      replayDetail.textContent = msg;
     }
 
     let tailX0 = 0;  // 初期フレームの最後端 (最小 x) の位置
@@ -281,36 +285,68 @@
       return _edgeColor.copy(REST_COLOR).lerp(s < 0 ? COMPRESS_COLOR : STRETCH_COLOR, Math.abs(s));
     }
 
+    function frameAtTime(times, seconds) {
+      let lo = 0, hi = times.length - 1;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (times[mid] < seconds) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo > 0 && seconds - times[lo - 1] < times[lo] - seconds ? lo - 1 : lo;
+    }
+
     function createIndividual(traj, meta) {
       return {
         traj, meta,
         title: meta && meta.gen !== undefined
-          ? `${meta.case} · gen${meta.gen} · rank${meta.rank}`
-          : (meta ? meta.case : (traj.label ?? "individual")),
+          ? `run ${meta.case} · gen${meta.gen} · rank${meta.rank}`
+          : (meta ? `run ${meta.case}` : (traj.label ?? "individual")),
         lines: meta
-          ? [meta.case, meta.gen !== undefined ? `gen${meta.gen} · rank${meta.rank}` : (traj.label ?? "")]
+          ? [`run ${meta.case}`, meta.gen !== undefined ? `gen${meta.gen} · rank${meta.rank}` : (traj.label ?? "")]
           : [traj.label ?? "individual"],
+        episodeEnd: typeof traj.episode === "number" ? traj.episode
+          : (typeof traj.episode_seconds === "number" ? traj.episode_seconds : null),
         detail: meta && typeof meta.score === "number"
           ? `score=${meta.score} distance=${meta.distance} m` : "",
-        nodes: [], rods: [], contacts: [], edgeLabels: [], labelLeft: 0, maxPosX: 0,
+        nodes: [], rods: [], edgeLabels: [], labelLeft: 0, maxPosX: 0,
         group: null, comLine: null, textMesh: null, deleteMesh: null,
         edges: [], dt: 0.0025, tailX0: 0, maxDist: "-", energyCum: [0],
-        frame: 0, lastFrame: -2, prevContact: [],
+        comXByFrame: [], comX0: 0, maxCom: "-",
+        frame: 0, frozenBody: null,
       };
     }
 
     function buildCreature(ind) {
       const t = ind.traj;
       const n = t.pos[0].length;
+      const nFrames = t.pos.length;
+      ind.dt = t.times.length > 1 && t.times[1] > t.times[0] ? t.times[1] - t.times[0] : 0.0025;
+      // 固定情報はエピソード終了までで打ち切る (replay を延長しても評価区間は変えない)
+      const epSec = ind.episodeEnd;
+      const epK = typeof epSec === "number" && epSec > 0
+        ? frameAtTime(t.times, epSec)
+        : nFrames - 1;
       ind.tailX0 = tailX(t.pos[0]);
-      let maxX = -Infinity, maxPosX = -Infinity;
-      for (const f of t.pos) {
-        maxX = Math.max(maxX, tailX(f));
-        for (const q of f) if (q[0] > maxPosX) maxPosX = q[0];
+      let maxTailX = -Infinity, maxPosX = -Infinity, maxComX = -Infinity;
+      ind.comXByFrame = new Float64Array(nFrames);
+      for (let k = 0; k < nFrames; k++) {
+        const f = t.pos[k];
+        let sx = 0;
+        for (const q of f) {
+          sx += q[0];
+          if (q[0] > maxPosX) maxPosX = q[0];
+        }
+        const cx = sx / f.length;
+        ind.comXByFrame[k] = cx;
+        if (k <= epK) {
+          if (cx > maxComX) maxComX = cx;
+          maxTailX = Math.max(maxTailX, tailX(f));
+        }
       }
       ind.maxPosX = maxPosX;
-      ind.maxDist = (maxX - ind.tailX0).toFixed(4) + " m";
-      ind.dt = t.times.length > 1 && t.times[1] > t.times[0] ? t.times[1] - t.times[0] : 0.0025;
+      ind.comX0 = ind.comXByFrame[0];
+      ind.maxCom = (maxComX - ind.comX0).toFixed(4) + " m";
+      ind.maxDist = (maxTailX - ind.tailX0).toFixed(4) + " m";
       // 駆動仕事の累積を先に作る (毎フレーム和を取り直さない)
       ind.energyCum = [0];
       let acc = 0;
@@ -322,10 +358,18 @@
       }
 
       const group = new THREE.Group();
-      group.position.set(X_OFFSET, 0, Z_START + (individuals.length - 1) * Z_SPACING);
+      group.position.set(X_OFFSET, 0, Z_START - (individuals.length - 1) * Z_SPACING);
       scene.add(group);
       ind.group = group;
       ind.edges = ladderEdges(Math.round(n / 2));
+      // 断面積を剛性に比例させる (半径 ∝ √k)。旧形式の遺伝子は等厚。
+      const nE = ind.edges.length;
+      const geneVec = t.gene ?? [];
+      ind.edgeScale = Array.from({ length: nE }, (_, j) => {
+        if (geneVec.length < 4 * nE) return 1;
+        const gk = Math.min(1, Math.max(0, geneVec[3 * nE + j]));
+        return Math.pow(10, gk / 2);  // k = 500 * 10^gk
+      });
 
       const nodeGeo = new THREE.SphereGeometry(0.05, 20, 16);
       for (let i = 0; i < n; i++) {
@@ -356,12 +400,6 @@
         group.add(sp);
         ind.edgeLabels.push(sp);
       }
-      const cGeo = new THREE.SphereGeometry(0.035, 12, 10);
-      for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(cGeo, new THREE.MeshBasicMaterial({ color: 0xe0b685 }));
-        m.visible = false;
-        group.add(m); ind.contacts.push(m);
-      }
       // 重心軌跡
       const pts = t.pos.map(f => {
         let x = 0, y = 0;
@@ -375,13 +413,31 @@
       ind.comLine.visible = el("showCom").checked;
       group.add(ind.comLine);
 
+      if (epK < nFrames - 1) {
+        const frozen = {
+          group: new THREE.Group(),
+          frame: epK,
+          nodes: ind.nodes.map(node => {
+            const clone = node.clone();
+            clone.material = node.material.clone();
+            return clone;
+          }),
+          rods: ind.rods.map(rod => new THREE.Mesh(rod.geometry, rod.material.clone())),
+          edgeLabels: ind.edgeLabels.map(label => label.clone()),
+        };
+        frozen.group.add(...frozen.nodes, ...frozen.rods, ...frozen.edgeLabels);
+        frozen.group.visible = false;
+        group.add(frozen.group);
+        ind.frozenBody = frozen;
+      }
+
       const nRest = t.rest_lengths?.[0]?.length ?? ind.edges.length;
       return nRest === ind.edges.length ? "" : ` (辺数が不一致: JSON ${nRest} / 復元 ${ind.edges.length})`;
     }
 
     // ラベルは xy 面上の板ポリゴンに焼く。スプライトと違い視点を回すと一緒に回る。
-    const LABEL_M = 0.26;    // ラベル 2 行分の高さ [m]
-    const BUTTON_M = 0.16;   // 削除ボタンの一辺 [m]
+    const LABEL_M = 0.52;    // ラベル 2 行分の高さ [m] (下端が床に付く)
+    const BUTTON_M = 0.22;   // 削除ボタンの一辺 [m]
     const LABEL_GAP = 0.05;
     const LABEL_FONT = 48;
     const LABEL_PAD = 10;
@@ -465,47 +521,49 @@
       ind.deleteMesh = btn;
     }
 
-    function updateIndividual(ind) {
+    function drawBody(ind, body, k) {
       const t = ind.traj;
-      const n = t.pos.length;
-      const k = Math.max(0, Math.min(n - 1, Math.round(tNow / ind.dt)));
       const f = t.pos[k];
-      const forward = k === ind.lastFrame + 1;
       for (let i = 0; i < f.length; i++) {
-        ind.nodes[i].position.set(f[i][0], f[i][1], 0);
-        const contact = t.contact_force[k][i] > 0;
-        ind.contacts[i].position.set(f[i][0], f[i][1], 0.001);
-        ind.contacts[i].visible = el("showContact").checked && contact;
-        // 前フレームで非接触→接触に変わった瞬間だけ着地エフェクトを出す (選択中の個体のみ)
-        if (forward && contact && !ind.prevContact[i] && ind === selected) {
-          spawnImpact(f[i][0], ind.group.position.z);
-        }
-        ind.prevContact[i] = contact;
+        body.nodes[i].position.set(f[i][0], f[i][1], 0);
+        // 接地中の質点はオレンジで塗る
+        body.nodes[i].material.color.setHex(t.contact_force[k][i] > 0 ? 0xff8c1a : 0xd8dde3);
       }
       // 辺: 自然長からのひずみで色 (自然長=白灰、圧縮=赤、伸長=青) と姿勢・長さを更新
       const rest = t.rest_lengths?.[k];
-      for (let j = 0; j < ind.rods.length; j++) {
+      for (let j = 0; j < body.rods.length; j++) {
         const [a, b] = ind.edges[j];
         const pa = f[a], pb = f[b];
         const dx = pb[0] - pa[0], dy = pb[1] - pa[1];
         const length = Math.hypot(dx, dy) || 1e-6;
-        const rod = ind.rods[j];
+        const rod = body.rods[j];
         rod.position.set((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2, 0);
         rod.quaternion.setFromUnitVectors(UP, _edgeDir.set(dx / length, dy / length, 0));
-        rod.scale.set(1, length, 1);
+        const thick = ind.edgeScale?.[j] ?? 1;
+        rod.scale.set(thick, length, thick);
         const s = rest ? THREE.MathUtils.clamp((length - rest[j]) / rest[j] / STRAIN_FULL, -1, 1) : 0;
         rod.material.color.copy(strainColor(s));
       }
       // エッジ番号は中点の少し上に置く
       const showIds = el("showEdgeIds").checked;
-      for (let j = 0; j < ind.edgeLabels.length; j++) {
+      for (let j = 0; j < body.edgeLabels.length; j++) {
         const [a, b] = ind.edges[j];
         const pa = f[a], pb = f[b];
-        ind.edgeLabels[j].position.set((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2 + 0.04, 0.02);
-        ind.edgeLabels[j].visible = showIds;
+        body.edgeLabels[j].position.set((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2 + 0.04, 0.02);
+        body.edgeLabels[j].visible = showIds;
+      }
+    }
+
+    function updateIndividual(ind) {
+      const t = ind.traj;
+      const k = frameAtTime(t.times, tNow);
+      drawBody(ind, ind, k);
+      const frozen = ind.frozenBody;
+      if (frozen) {
+        frozen.group.visible = episodeChecks.get(ind.episodeEnd)?.checked === true;
+        if (frozen.group.visible) drawBody(ind, frozen, frozen.frame);
       }
       ind.frame = k;
-      ind.lastFrame = k;
     }
 
     function updateStats(ind) {
@@ -515,12 +573,15 @@
       for (const p of f) { cx += p[0]; cy += p[1]; }
       cx /= f.length; cy /= f.length;
       for (const c of t.contact_force[k]) if (c > 0) nc++;
+      el("statTime").textContent = tNow.toFixed(3) + " s";
       el("comX").textContent = cx.toFixed(4) + " m";
       el("comY").textContent = cy.toFixed(4) + " m";
+      el("comDist").textContent = (ind.comXByFrame[k] - ind.comX0).toFixed(4) + " m";
       el("distX").textContent = (tailX(f) - ind.tailX0).toFixed(4) + " m";
       el("nContact").textContent = String(nc);
       el("energy").textContent = ind.energyCum[k].toFixed(3) + " J";
       el("pLabel").textContent = ind.title;
+      el("maxCom").textContent = ind.maxCom;
       el("maxDist").textContent = ind.maxDist;
       el("pFrames").textContent = String(t.pos.length);
       el("pDt").textContent = ind.dt.toFixed(4) + " s";
@@ -535,7 +596,8 @@
       const nE = t?.rest_lengths?.[0]?.length ?? 0;
       const g = t?.gene ?? [];
       // 棒は細く。横スクロールはグラフ内だけ (パネル全体はスクロールさせない)
-      const BAR = 8, GAP = 4, LEFT = 52, RIGHT = 8, TOP = 18, BOTTOM = 16, H = 330;
+      const BAR = 8, GAP = 4, LEFT = 52, RIGHT = 8, TOP = 8, BOTTOM = 6, H = 390;
+      const HEAD = 26, AXIS = 14;
       const need = LEFT + RIGHT + Math.max(1, nE) * (BAR + GAP);
       cv.width = Math.max(el("geneChartWrap").clientWidth || 300, need);
       cv.height = H;
@@ -564,39 +626,46 @@
           ];
       const plotW = W - LEFT - RIGHT;
       const panelH = (H - TOP - BOTTOM) / panels.length;
-      ctx.font = "11px sans-serif";
       const tickLabel = v => (Math.abs(v - TAU) < 1e-6 ? "2π" : Math.abs(v - Math.PI) < 1e-6 ? "π" : String(+v.toFixed(2)));
       panels.forEach(([label, range, vals, max, ticks], pi) => {
         const y0 = TOP + pi * panelH;
-        const h = panelH - 20;
-        // 変数名は見出しとして太字で、範囲はその下に小さく
+        // 見出し行はグラフの外 (上) に置き、目盛りと重ねない
         ctx.fillStyle = "#ededed";
         ctx.font = "bold 13px sans-serif";
-        ctx.fillText(label, 2, y0 + 12);
+        ctx.textAlign = "left";
+        ctx.fillText(label, 2, y0 + 14);
         ctx.fillStyle = "#a6abb1";
         ctx.font = "11px sans-serif";
-        ctx.fillText(range, 2, y0 + 26);
-        ctx.font = "12px sans-serif";
+        ctx.textAlign = "right";
+        ctx.fillText(range, LEFT + plotW, y0 + 14);
+        ctx.textAlign = "left";
+
+        const plotTop = y0 + HEAD;
+        const base = y0 + panelH - AXIS;
+        const h = base - plotTop;
         // 目盛り: 水平線と値を左に出す
         for (const tv of ticks) {
-          const ty = y0 + h - (tv / max) * h;
+          const ty = base - (tv / max) * h;
           ctx.strokeStyle = tv === 0 ? "#6b7178" : "#454a51";
           ctx.beginPath(); ctx.moveTo(LEFT, ty); ctx.lineTo(LEFT + plotW, ty); ctx.stroke();
           ctx.fillStyle = "#e6e9ed";
+          ctx.font = "11px sans-serif";
           ctx.textAlign = "right";
           ctx.fillText(tickLabel(tv), LEFT - 6, ty + 4);
           ctx.textAlign = "left";
         }
-        ctx.font = "11px sans-serif";
         for (let i = 0; i < nE; i++) {
           const v = Math.max(0, Math.min(max, vals[i]));
-          const bh = (v / max) * (h - 6);
+          const bh = (v / max) * (h - 2);
           const x = LEFT + i * (BAR + GAP);
           ctx.fillStyle = "#85d6bf";
-          ctx.fillRect(x, y0 + h - bh, BAR, bh);
+          ctx.fillRect(x, base - bh, BAR, bh);
           ctx.fillStyle = "#8a9098";
-          ctx.fillText(String(i), x + BAR / 2 - 3, y0 + h + 11);
+          ctx.font = "11px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(String(i), x + BAR / 2, base + 12);
         }
+        ctx.textAlign = "left";
       });
     }
 
@@ -613,6 +682,56 @@
       const s = el("slider");
       s.max = String(Math.round(duration() * 1000));
       if (+s.value > +s.max) s.value = s.max;
+      updateEpisodeMarks();
+    }
+
+    // エピソード終了時刻をスライダー上の青い縦線で示す (個体ごとに違えば全部)
+    function updateEpisodeMarks() {
+      const box = el("episodeMarks");
+      box.replaceChildren();
+      const dur = duration();
+      const ends = new Map();
+      for (const ind of individuals) {
+        const end = ind.episodeEnd;
+        if (dur > 0 && end > 0 && end <= dur + 1e-9) {
+          ends.set(end, Boolean(ind.frozenBody) || ends.get(end));
+        }
+      }
+      const previousChecks = episodeChecks;
+      episodeChecks = new Map();
+      const rowEnds = [];
+      const checkPitch = 18;
+      for (const e of [...ends.keys()].sort((a, b) => a - b)) {
+        const left = e / dur * 100 + "%";
+        const m = document.createElement("div");
+        m.className = "epMark";
+        m.style.left = left;
+        m.title = `エピソード終了 ${e} s`;
+        box.append(m);
+        if (!ends.get(e)) continue;
+
+        let check = previousChecks.get(e);
+        if (!check) {
+          check = document.createElement("input");
+          check.type = "checkbox";
+          check.className = "epCheck";
+          check.name = `frozen-${e}`;
+          check.disabled = true;
+          check.title = `${e} 秒時点で静止した個体を表示`;
+          check.setAttribute("aria-label", check.title);
+          check.addEventListener("change", () => setTime(tNow));
+        }
+        // 時刻が近いチェックボックスは別の段に置く。
+        const x = box.clientWidth * e / dur;
+        let row = rowEnds.findIndex(lastX => x - lastX >= checkPitch);
+        if (row === -1) row = rowEnds.length;
+        rowEnds[row] = x;
+        check.style.left = left;
+        check.style.top = `${checkPitch * (row + 1)}px`;
+        box.append(check);
+        episodeChecks.set(e, check);
+      }
+      box.parentElement.style.paddingBottom = `${rowEnds.length * checkPitch}px`;
     }
 
     function setTime(t) {
@@ -622,6 +741,12 @@
         return;
       }
       tNow = Math.max(0, Math.min(duration(), t));
+      for (const [end, check] of episodeChecks) {
+        const beforeEnd = tNow < end;
+        if (check.disabled === beforeEnd) continue;
+        check.disabled = beforeEnd;
+        check.checked = !beforeEnd;
+      }
       for (const ind of individuals) updateIndividual(ind);
       el("tLabel").textContent = tNow.toFixed(3) + " s";
       el("slider").value = String(Math.round(tNow * 1000));
@@ -637,7 +762,7 @@
 
     function layout() {
       individuals.forEach((ind, i) => {
-        if (ind.group) ind.group.position.set(X_OFFSET, 0, Z_START + i * Z_SPACING);
+        if (ind.group) ind.group.position.set(X_OFFSET, 0, Z_START - i * Z_SPACING);
       });
     }
 
@@ -656,7 +781,7 @@
       if (!individuals.length) {
         selected = null;
         drawGeneChart(null);
-        for (const id of ["pLabel", "maxDist", "pFrames", "pDt", "comX", "comY", "distX", "nContact", "energy", "tLabel"]) el(id).textContent = "-";
+        for (const id of ["pLabel", "maxCom", "maxDist", "pFrames", "pDt", "statTime", "comX", "comY", "comDist", "distX", "nContact", "energy", "tLabel"]) el(id).textContent = "-";
         el("statTarget").textContent = "";
       }
       setTime(Math.min(tNow, duration()));
@@ -745,7 +870,8 @@
     }
 
     // ---------- replay API ----------
-    async function refreshCases() {
+    async function refreshCases(quiet = false) {
+      if (!quiet) setReplayDetail("");
       // 同一オリジン (bodyopt viewer 配信)、次に既定ポートの API の順に試す
       for (const base of ["", API_FALLBACK]) {
         try {
@@ -753,7 +879,9 @@
           if (!r.ok) throw new Error(String(r.status));
           const data = await r.json();
           apiBase = base;
-          serverRoot = base ? null : (data.root ?? null);
+          apiReady = true;
+          if (apiRetry) { clearInterval(apiRetry); apiRetry = null; }
+          el("caseList").replaceChildren();
           for (const c of data.cases ?? []) {
             const o = document.createElement("option");
             o.value = c;
@@ -762,30 +890,48 @@
           const n = (data.cases ?? []).length;
           setReplayStatus(`接続済み · ケース ${n} 件`, "ok",
             base ? `${base} (VS Code プレビュー経由)` : "同一オリジンの API");
+          setReplayDetail("");
           return;
         } catch {
           // 次の候補へ
         }
       }
+      apiReady = false;
       setReplayStatus("未接続", "err",
         "uv run python -m bodyopt viewer を起動し、表示された URL から開いてください");
+      setReplayDetail("replay API に接続できません。bodyopt viewer を起動すると 3 秒ごとに自動で再接続します。");
+      // サーバーを後から起動しても、再読み込みなしで繋がるようにする
+      if (!apiRetry) apiRetry = setInterval(() => refreshCases(true), 3000);
     }
 
     async function loadReplay() {
       const caseName = el("caseName").value.trim();
       const gens = el("genSpec").value.trim() || "0";
-      const ranks = el("rankSpec").value.trim() || "1";
+      const ranks = el("rankSpec").value.trim() || "0";
+      const seconds = el("secondsSpec").value.trim();
       if (!caseName) { setReplayStatus("ケース名を入れてください", "err"); return; }
+      if (!apiReady) {
+        setReplayStatus("未接続", "err", "replay API に接続していません");
+        setReplayDetail("replay API に接続していません。bodyopt viewer を起動してください（自動で再接続します）。");
+        refreshCases(true);
+        return;
+      }
       const btn = el("loadReplay");
       btn.disabled = true;
+      setReplayDetail("");
       setReplayStatus("replay 実行中…", "busy", `${caseName} gen ${gens} / rank ${ranks}`);
       try {
         const r = await fetch(apiUrl("/_api/replay"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ case: caseName, gens, ranks }),
+          body: JSON.stringify({ case: caseName, gens, ranks, seconds }),
         });
-        const data = await r.json();
+        const text = await r.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch {
+          throw new Error(`${r.status} ${r.statusText}: ${text.slice(0, 120)}`);
+        }
         if (!r.ok) throw new Error(data.error ?? r.statusText);
         const items = data.items ?? [], errors = data.errors ?? [];
         let loaded = 0;
@@ -804,8 +950,10 @@
           errors.length ? "err" : "ok",
           errors.join("\n"),
         );
+        setReplayDetail(errors.length ? errors[0] + (errors.length > 1 ? ` ほか ${errors.length - 1} 件` : "") : "");
       } catch (e) {
         setReplayStatus("replay 失敗", "err", e.message);
+        setReplayDetail(e.message);
       } finally {
         btn.disabled = false;
       }
@@ -816,6 +964,7 @@
     el("clearAll").addEventListener("click", () => {
       for (const ind of [...individuals]) removeIndividual(ind);
       setReplayStatus("個体をすべて削除しました", "info");
+      setReplayDetail("");
     });
     el("loadUrl").addEventListener("click", () => el("url").value && loadUrl(el("url").value));
     el("url").addEventListener("keydown", e => { if (e.key === "Enter" && el("url").value) loadUrl(el("url").value); });
@@ -835,7 +984,6 @@
     el("showCom").addEventListener("change", e => {
       for (const ind of individuals) ind.comLine.visible = e.target.checked;
     });
-    el("showContact").addEventListener("change", () => setTime(tNow));
     el("showEdgeIds").addEventListener("change", () => setTime(tNow));
 
     // ---------- 3D ラベルのクリック ----------
@@ -864,9 +1012,6 @@
     function tick(now) {
       requestAnimationFrame(tick);
       controls.update();
-      const animDt = Math.min((now - (lastTick ?? now)) / 1000, 0.1);
-      lastTick = now;
-      stepImpacts(animDt);
       if (playing && individuals.length) {
         const dt = Math.min((now - (lastT ?? now)) / 1000, 0.1);
         lastT = now;

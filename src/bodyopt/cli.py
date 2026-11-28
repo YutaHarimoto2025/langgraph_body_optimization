@@ -61,7 +61,7 @@ def _confirm_full(args: argparse.Namespace, spec, gp) -> None:
     """full 記録の推定ディスク量が 1 GB を超える場合は対話で確認する。"""
     if args.record != "full":
         return
-    dim = 3 * spec.n_muscles + 6  # 遺伝子 + 付随統計 (scores/valid/distance/...)
+    dim = 4 * spec.n_muscles + 6  # 遺伝子 + 付随統計 (scores/valid/distance/...)
     est_gb = args.generations * gp.pop_size * dim * 4 / 1e9
     if est_gb <= 1.0 or args.yes:
         return
@@ -141,29 +141,41 @@ def _replay_source(run_dir: Path) -> tuple[np.ndarray, np.ndarray, bool]:
     return genes, scores, True
 
 
-# run ごとの (spec, sim_p, jit 済みバッチ rollout)。JAX のコンパイル結果を使い回す。
+# (run, ステップ数) ごとの (spec, sim_p, jit 済みバッチ rollout)。JAX のコンパイル結果を使い回す。
 # ponytail: run ディレクトリ単位のキャッシュ。同じ run を上書きする運用なら再起動が要る。
-_REPLAY_CONTEXT: dict[Path, tuple[Any, Any, Any]] = {}
+_REPLAY_CONTEXT: dict[tuple[Path, int], tuple[Any, Any, Any, float]] = {}
 
 
-def _replay_context(run_dir: Path) -> tuple[Any, Any, Any]:
-    """meta.json から身体と物理を復元し、バッチ rollout (jit + vmap) を返す。"""
-    key = run_dir.resolve()
+def _replay_context(run_dir: Path, seconds: float | None = None) -> tuple[Any, Any, Any, float]:
+    """meta.json から身体と物理を復元し、バッチ rollout (jit + vmap) を返す。
+
+    seconds を省くと保存時のエピソード時間を使う。指定は dt の整数倍に丸める。
+    戻り値は (spec, sim_p, batch_rollout, エピソード時間)。エピソード時間は
+    保存時の値で、再生時間 (seconds) とは別。
+    """
+    with open(run_dir / "meta.json", encoding="utf-8") as f:
+        meta = json.load(f)
+    sp = meta["sim_params"]
+    dt = float(sp["dt"])
+    episode = float(sp["episode_seconds"])
+    want = episode if seconds is None else seconds
+    n_steps = max(1, int(round(want / dt)))
+    effective = n_steps * dt
+    key = (run_dir.resolve(), n_steps)
     cached = _REPLAY_CONTEXT.get(key)
     if cached is not None:
         return cached
-    with open(run_dir / "meta.json", encoding="utf-8") as f:
-        meta = json.load(f)
     # 身体は保存された定義から復元する (実行時の --n-cols に依存しない)
     spec = creature_from_summary(meta["creature"])
-    sim_p = SimParams(**{k: v for k, v in meta["sim_params"].items() if k in SimParams.__dataclass_fields__})
+    sim_p = SimParams(**{k: v for k, v in sp.items() if k in SimParams.__dataclass_fields__})
+    sim_p = dataclasses.replace(sim_p, episode_seconds=effective)
 
     def one(gene: jax.Array) -> tuple[Any, ...]:
         r = rollout_full(gene, spec, sim_p)
         # RolloutResult は pytree 登録していないので tuple に開いて vmap に渡す
         return (r.pos, r.vel, r.times, r.spring_force, r.contact_force, r.drive_power, r.rest_lengths)
 
-    context = (spec, sim_p, jax.jit(jax.vmap(one)))
+    context = (spec, sim_p, jax.jit(jax.vmap(one)), episode)
     _REPLAY_CONTEXT[key] = context
     return context
 
@@ -173,6 +185,7 @@ def replay_batch(
     targets: list[tuple[int, int]],
     out_dir: Path | None = None,
     labels: list[str] | None = None,
+    seconds: float | None = None,
 ) -> list[ReplayOutcome]:
     """複数個体を 1 回の vmap rollout でまとめて書き出す。
 
@@ -180,13 +193,13 @@ def replay_batch(
     labels を省くと trajectory_gen<g>_rank<r>.json になる。
     """
     genes, scores, summary_only = _replay_source(run_dir)
-    spec, _sim_p, batch_rollout = _replay_context(run_dir)
+    spec, _sim_p, batch_rollout, episode = _replay_context(run_dir, seconds)
     n_gens, n_ranks = scores.shape
     # 旧形式 (2 成分/筋肉) の遺伝子は現在の物理モデルで解釈できない。JAX の前に弾く。
     gene_error: str | None = None
-    if genes.shape[2] != 3 * spec.n_muscles:
+    if genes.shape[2] not in (3 * spec.n_muscles, 4 * spec.n_muscles):
         gene_error = (
-            f"遺伝子長 {genes.shape[2]} が現在の物理 (3 × 筋肉数 = {3 * spec.n_muscles}) と"
+            f"遺伝子長 {genes.shape[2]} が現在の物理 (3 または 4 × 筋肉数 = {3 * spec.n_muscles}/{4 * spec.n_muscles}) と"
             "一致しません。旧形式の run は当時のコードで replay してください。"
         )
     outcomes: list[ReplayOutcome | None] = [None] * len(targets)
@@ -202,10 +215,10 @@ def replay_batch(
             if summary_only and rank != 0:
                 raise ValueError(
                     f"{run_dir.name} は summary 記録 (population.npz なし) なので "
-                    "最良個体 (rank 1) のみ再生できます"
+                    "最良個体 (rank 0) のみ再生できます"
                 )
             if not 0 <= rank < n_ranks:
-                raise ValueError(f"rank {rank + 1} は範囲外 (1..{n_ranks})")
+                raise ValueError(f"rank {rank} は範囲外 (0..{n_ranks - 1})")
         except ValueError as e:
             outcomes[i] = ReplayOutcome(generation, rank, error=str(e))
             continue
@@ -223,7 +236,7 @@ def replay_batch(
             traj = RolloutResult(*jax.tree.map(lambda x: x[k], rolled))
             com = com_trajectory(traj.pos, spec)
             label = labels[i] if labels else f"gen{generation}_rank{rank}"
-            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label)
+            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label, episode)
             outcomes[i] = ReplayOutcome(
                 generation, rank, path=out, score=picked_scores[k],
                 distance=float(com[-1, 0] - com[0, 0]),
@@ -246,6 +259,27 @@ def replay_individual(
     if outcome.path is None:
         raise ValueError(outcome.error)
     return outcome.path, outcome.score, outcome.distance
+
+
+def cmd_replay_worker(args: argparse.Namespace) -> None:
+    """viewer から子プロセスで呼ぶ replay 実行者。常に現在のソースで計算する。"""
+    targets = [tuple(t) for t in json.loads(args.targets)]
+    labels = json.loads(args.labels) if args.labels else None
+    outcomes = replay_batch(
+        Path(args.run), targets, Path(args.out) if args.out else None, labels
+    )
+    items = [
+        {
+            "generation": o.generation,
+            "rank": o.rank,
+            "score": o.score,
+            "distance": o.distance,
+            "path": str(o.path) if o.path else None,
+            "error": o.error,
+        }
+        for o in outcomes
+    ]
+    print(json.dumps(items))
 
 
 def cmd_replay(args: argparse.Namespace) -> None:
@@ -295,11 +329,11 @@ def chaos_check(
     if summary_only and rank != 0:
         raise ValueError("summary 記録は最良個体 (rank 0) のみ測れます")
     if not 0 <= rank < n_ranks:
-        raise ValueError(f"rank {rank + 1} は範囲外 (1..{n_ranks})")
-    spec, _sim_p, batch_rollout = _replay_context(run_dir)
-    if genes.shape[2] != 3 * spec.n_muscles:
+        raise ValueError(f"rank {rank} は範囲外 (0..{n_ranks - 1})")
+    spec, _sim_p, batch_rollout, _episode = _replay_context(run_dir)
+    if genes.shape[2] not in (3 * spec.n_muscles, 4 * spec.n_muscles):
         raise ValueError(
-            f"遺伝子長 {genes.shape[2]} が現在の物理 (3 × 筋肉数 = {3 * spec.n_muscles}) と"
+            f"遺伝子長 {genes.shape[2]} が現在の物理 (3 または 4 × 筋肉数 = {3 * spec.n_muscles}/{4 * spec.n_muscles}) と"
             "一致しません。旧形式の run は当時のコードで測ってください。"
         )
     order = np.argsort(scores[gen])[::-1]
@@ -358,10 +392,45 @@ def cmd_stats_html(args: argparse.Namespace) -> None:
     print(f"[stats-html] -> {out}")
 
 
-def cmd_viewer(args: argparse.Namespace) -> None:
+def cmd_viewer_child(args: argparse.Namespace) -> None:
     from .viewer_server import serve
 
     serve(host=args.host, port=args.port)
+
+
+def cmd_viewer(args: argparse.Namespace) -> None:
+    """viewer を監視プロセスとして起動する。src が変われば子サーバーを自動で再起動する。"""
+    import subprocess
+    import time
+
+    from .viewer_server import source_fingerprint
+
+    while True:
+        fp = source_fingerprint()
+        child = subprocess.Popen(
+            [sys.executable, "-m", "bodyopt", "_viewer-child",
+             "--host", args.host, "--port", str(args.port)]
+        )
+        try:
+            while child.poll() is None:
+                time.sleep(0.5)
+                if source_fingerprint() != fp:
+                    print("[viewer] ソース変更を検出したので再起動します", flush=True)
+                    child.terminate()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                    break
+            else:
+                return  # 子が自分で終了した (ポート使用中など)
+        except KeyboardInterrupt:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+            return
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -411,6 +480,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--run", required=True, help="run ディレクトリまたは stats.json")
     sp.add_argument("--out", default=None, help="出力先 (既定は stats.json と同じディレクトリの stats.html)")
     sp.set_defaults(func=cmd_stats_html)
+
+    wk = sub.add_parser("_replay-worker", help=argparse.SUPPRESS)
+    wk.add_argument("--run", required=True)
+    wk.add_argument("--targets", required=True, help='[[gen, rank], ...] の JSON')
+    wk.add_argument("--labels", default=None, help="ラベルの JSON 配列")
+    wk.add_argument("--out", default=None)
+    wk.set_defaults(func=cmd_replay_worker)
+
+    vc = sub.add_parser("_viewer-child", help=argparse.SUPPRESS)
+    vc.add_argument("--host", default="127.0.0.1")
+    vc.add_argument("--port", type=int, default=8765)
+    vc.set_defaults(func=cmd_viewer_child)
 
     vp = sub.add_parser("viewer", help="軌跡ビューアと replay API をローカル配信する")
     vp.add_argument("--host", default="127.0.0.1")

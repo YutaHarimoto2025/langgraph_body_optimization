@@ -46,14 +46,14 @@
       <h2>身体と物理モデル</h2>
       <p class="note">詳細: <a href="../agents/sim/creature.md" target="bodyopt-doc">@docs/agents/sim/creature.md</a> (身体・遺伝子) / <a href="../agents/sim/physics.md" target="bodyopt-doc">@docs/agents/sim/physics.md</a> (積分・接触・計算構成)</p>
       <p>身体は 6 質点・11 辺の両対角ラダー (上下 2 列 × 3 点、各セルに両方向の対角) です。列間隔 0.5 m、行間隔 0.4 m、全質点 1 kg、バネ剛性 500 N/m。初期形状の辺長がそのままバネの自然長になるため、最初は張りゼロで始まります。この剛性では重力による圧縮は辺長の 5% 程度 (上段は 0.45 → 0.37 m) で、無駆動でも形は保たれます。</p>
-      <p>各辺は受動バネ・能動収縮力・軸方向の粘性減衰 (減衰比 0.10) の並列要素です。能動収縮力は 0〜100 N・0.1〜1 Hz で周期的に変化し、辺を縮める向きにだけ働きます (モデルは <code>params/default.json</code> の <code>sim.muscle_model</code> で切り替え)。重力は 9.81 m/s² を下向きに加えます。時間積分は半陰的オイラー法 (刻み 2.5 ms、1 試行 5 秒)。床との接触はめり込みに比例する反力、摩擦は <code>tanh</code> で滑らかにしたクーロン摩擦です。RK4 も比較用に実装してあり、回帰テスト (<code>tests/regression/</code>) で刻みや手法を変えても結論が変わらないことを確認します。</p>
+      <p>各辺は受動バネ・能動収縮力・軸方向の粘性減衰 (減衰比 0.10) の並列要素です。能動収縮力は 0〜100 N・0.1〜1 Hz で周期的に変化し、辺を縮める向きにだけ働きます (モデルは <code>params/default.json</code> の <code>sim.muscle_model</code> で切り替え)。重力は 9.81 m/s² を下向きに加えます。時間積分は RK4 (刻み 2.5 ms、1 試行 5 秒) で、半陰的オイラーにも切り替えられます。床との接触はめり込みに比例する反力、摩擦は <code>tanh</code> で滑らかにしたクーロン摩擦です。RK4 も比較用に実装してあり、回帰テスト (<code>tests/regression/</code>) で刻みや手法を変えても結論が変わらないことを確認します。</p>
       <p>シミュレータは JAX で書き、集団は <code>vmap</code>、時間は <code>lax.scan</code>、世代も 1 つの JIT にまとめます。世代ループの途中で CPU に結果を取り出さないため、GPU を待たせません。2D で書きつつ、質点座標や接触・摩擦の分離は 3D へそのまま拡張できる形にしています。</p>
     </section>
 
     <section id="ga">
       <h2>GA のアルゴリズム</h2>
       <p class="note">詳細: <a href="../agents/optimizer/ga.md" target="bodyopt-doc">@docs/agents/optimizer/ga.md</a> (演算子・パラメータ・島モデル拡張・再現性の限界)</p>
-      <p>遺伝子は筋肉ごとの「振幅 (能動張力 0〜100 N)」「周波数 (0.1〜1 Hz)」「位相 (0〜2π)」です。身体の形状・接続は first goal では変えません。</p>
+      <p>遺伝子は筋肉ごとの「振幅 (能動張力 0〜100 N)」「周波数 (0.1〜1 Hz)」「位相 (0〜2π)」「剛性 (500〜5000 N/m、対数)」です。身体の形状・接続は first goal では変えません。</p>
       <table>
         <thead><tr><th>要素</th><th>設定</th></tr></thead>
         <tbody>

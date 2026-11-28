@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>報告 YYYY-MM-DD｜<topic></title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background:#232323; color:#ededed; }
+  body { max-width: 56rem; margin: auto; padding: 1.5rem 1rem 3rem; line-height: 1.75; }
+  h1, h2, h3 { line-height: 1.4; }
+  h2 { margin-top: 2.25rem; border-bottom: 1px solid #888; padding-bottom: .3rem; }
+  a { color: #9eceff; overflow-wrap: anywhere; }
+  :focus-visible { outline: 2px solid #9eceff; outline-offset: 2px; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; background: #363636; padding: 0 .25em; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: #303030; border: 1px solid #888; border-radius: .5rem; padding: .75rem 1rem; overflow-x: auto; }
+  pre code { background: transparent; padding: 0; }
+  table { border-collapse: collapse; width: 100%; background: #303030; margin: .8rem 0; }
+  th, td { border: 1px solid #888; padding: .55rem; text-align: left; vertical-align: top; }
+  thead th { background: #3d3d3d; }
+  .lead { border-left: .25rem solid #85d6bf; padding: .75rem 1rem; background: #293a36; }
+  .meta { color: #c9c9c9; }
+  .note { font-size: .88rem; color: #a6abb1; }
+  .warn { border-left: .25rem solid #e0b685; padding: .75rem 1rem; background: #3a352d; }
+  .toc { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; }
+  figure { margin: 1rem 0; }
+  figcaption { font-size: .85rem; color: #a6abb1; margin-top: .35rem; }
+  @media print { :root, .lead, table, thead th, .meta { color-scheme: light; color: #222; background: white; } a { color: #155584; } .toc { display: none; } }
+</style>
+</head>
+<body>
+<!-- 複製して docs/report/YYYY-MM-DD_topic.html を作る。
+     見出しと目次は必ず一致させる。分量は回ごとに変えてよい (重点の節を厚く、他は薄く)。 -->
+<header>
+  <h1>報告 YYYY-MM-DD｜<topic></h1>
+  <p class="meta">YYYY-MM-DD｜commit <hash> (dirty: false)｜tag run-XXX｜生データ: <code>resources/runs/XXX/</code></p>
+  <p class="lead"><!-- 結論を 2〜4 文で。最良結果、主要な変更、判定を書く。 --></p>
+  <nav class="toc" aria-label="目次">
+    <a href="#purpose">目的</a>
+    <a href="#feature">追加機能</a>
+    <a href="#setup">実験設定</a>
+    <a href="#resources">資源と時間</a>
+    <a href="#results">主要な結果</a>
+    <a href="#analysis">分析</a>
+    <a href="#todo">todo との照合</a>
+  </nav>
+</header>
+<main>
+  <section id="purpose">
+    <h2>目的</h2>
+    <p class="note">この回で確かめたいこと、判断したいことを書く。</p>
+  </section>
+
+  <section id="feature">
+    <h2>追加機能</h2>
+    <p class="note">コード・パラメータ・記録の変更点。今回使わない節は短くてよい。</p>
+  </section>
+
+  <section id="setup">
+    <h2>実験設定</h2>
+    <table>
+      <thead><tr><th>項目</th><th>値</th></tr></thead>
+      <tbody>
+        <tr><td>身体</td><td></td></tr>
+        <tr><td>筋肉</td><td></td></tr>
+        <tr><td>物理</td><td>integrator, dt, 接触, 摩擦</td></tr>
+        <tr><td>GA</td><td>pop, 世代数, seed, 記録レベル</td></tr>
+      </tbody>
+    </table>
+    <pre><code>uv run python -m bodyopt evolve ... --out resources/runs/XXX</code></pre>
+  </section>
+
+  <section id="resources">
+    <h2>資源と時間</h2>
+    <table>
+      <thead><tr><th>項目</th><th>値</th></tr></thead>
+      <tbody>
+        <tr><td>実行時間</td><td></td></tr>
+        <tr><td>VRAM ピーク</td><td></td></tr>
+        <tr><td>履歴メモリ</td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="results">
+    <h2>主要な結果</h2>
+    <p class="note">数表と、必要なら軌跡の図 (Canvas プレーヤーや SVG) を置く。</p>
+    <table>
+      <thead><tr><th>世代</th><th>最良距離 [m]</th></tr></thead>
+      <tbody><tr><td></td><td></td></tr></tbody>
+    </table>
+  </section>
+
+  <section id="analysis">
+    <h2>分析</h2>
+    <p class="note">結果の解釈。先行研究との差、想定外だった点、カオスや数値誤差の影響を書く。</p>
+  </section>
+
+  <section id="todo">
+    <h2>todo との照合</h2>
+    <ul>
+      <li></li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

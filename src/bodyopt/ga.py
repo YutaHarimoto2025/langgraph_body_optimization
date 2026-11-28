@@ -41,6 +41,7 @@ def gene_bounds(n_muscle: int, muscle_model: str) -> tuple[jax.Array, jax.Array]
             jnp.zeros(n_muscle),
             jnp.full(n_muscle, FREQ_LO),
             jnp.zeros(n_muscle),
+            jnp.zeros(n_muscle),  # 剛性 (対数スケール座標 0..1)
         ]
     ).astype(jnp.float32)
     hi = jnp.concatenate(
@@ -48,6 +49,7 @@ def gene_bounds(n_muscle: int, muscle_model: str) -> tuple[jax.Array, jax.Array]
             jnp.full(n_muscle, get_model(muscle_model).gene_hi),
             jnp.full(n_muscle, FREQ_HI),
             jnp.full(n_muscle, PHASE_HI),
+            jnp.ones(n_muscle),
         ]
     ).astype(jnp.float32)
     return lo, hi
@@ -55,11 +57,12 @@ def gene_bounds(n_muscle: int, muscle_model: str) -> tuple[jax.Array, jax.Array]
 
 def random_population(key: jax.Array, n: int, n_muscle: int, amp_hi: float) -> jax.Array:
     """一様サンプリングで初期集団 [n, 3*E_m]。振幅 [0, amp_hi]、周波数 [FREQ_LO, FREQ_HI]、位相 [0, 2π)。"""
-    k1, k2, k3 = jax.random.split(key, 3)
+    k1, k2, k3, k4 = jax.random.split(key, 4)
     amps = jax.random.uniform(k1, (n, n_muscle), minval=0.0, maxval=amp_hi)
     freqs = jax.random.uniform(k2, (n, n_muscle), minval=FREQ_LO, maxval=FREQ_HI)
     phases = jax.random.uniform(k3, (n, n_muscle), minval=0.0, maxval=PHASE_HI)
-    return jnp.concatenate([amps, freqs, phases], axis=1)
+    stiffness = jax.random.uniform(k4, (n, n_muscle), minval=0.0, maxval=1.0)
+    return jnp.concatenate([amps, freqs, phases, stiffness], axis=1)
 
 
 def _tournament_parent(
@@ -74,11 +77,12 @@ def _tournament_parent(
 
 def _clip_gene(genes: jax.Array, lo: jax.Array, hi: jax.Array) -> jax.Array:
     """振幅・周波数は範囲内にクリップし、位相は周期折返しする。"""
-    n_m = lo.shape[0] // 3
+    n_m = lo.shape[0] // 4
     amp = jnp.clip(genes[..., :n_m], lo[:n_m], hi[:n_m])
     freq = jnp.clip(genes[..., n_m : 2 * n_m], lo[n_m : 2 * n_m], hi[n_m : 2 * n_m])
-    phase = jnp.mod(genes[..., 2 * n_m :], PHASE_HI)
-    return jnp.concatenate([amp, freq, phase], axis=-1)
+    phase = jnp.mod(genes[..., 2 * n_m : 3 * n_m], PHASE_HI)
+    stiff = jnp.clip(genes[..., 3 * n_m :], 0.0, 1.0)
+    return jnp.concatenate([amp, freq, phase, stiff], axis=-1)
 
 
 def inject_worst(
@@ -98,7 +102,7 @@ def inject_worst(
     if n_imm <= 0:
         return pop
     idx = jnp.argsort(fit)[:n_imm]
-    imm = random_population(key, n_imm, L // 3, amp_hi)
+    imm = random_population(key, n_imm, L // 4, amp_hi)
     return pop.at[idx].set(imm)
 
 
