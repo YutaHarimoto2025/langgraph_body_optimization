@@ -58,9 +58,10 @@ run の再現単位は commit sha とする。 meta.json  の `git.commit` が�
 1. `git status --porcelain` が空か確かめる。空でなければ commit する。
 2. `evolve` を回す。
 3.  meta.json  の `git.dirty` が `false` か確かめる。
-4. `git tag run-<name>` を打つ。
-5. `chaos` で最良個体のばらつきを測る。
-6. 必要な個体を `replay` して viewer で見る。
+4. `stats-html` を生成する (run が正常終了したら原則として必ず)。
+5. `git tag run-<name>` を打つ。
+6. `chaos` で最良個体のばらつきを測る。
+7. 必要な個体を `replay` して viewer で見る。
 
 run 名は  resources/runs/<name>/  のディレクトリ名にしかない。追跡は「ディレクトリ名 → meta.json の sha」の順で行う。`replay` と `chaos` は meta.json の `git` をまだ照合しないので、手順 3 が現状で唯一の担保である。
 
@@ -68,17 +69,18 @@ run 名は  resources/runs/<name>/  のディレクトリ名にしかない。�
 
 1. 実装後は「静的テスト → 短い GA run による動的テスト → 合意仕様の docs 正本化」を徹底する。first goal の段階では長い GA を回さない (数分で終わる動作確認まで)。
 2. 新しい実験設定 (params・身体・物理・評価式) で run を回したら、結果を採用する前に最良個体で `chaos` を測る。同じ条件の反復シミュレーションで距離の幅が max(5 mm, 平均の 1%) を超えたら、カオスが結果に効いているとみなす。その場合は report に幅と `dt` を明記し、`dt` を細かくする・減衰を見直す・設定間の比較を平均と分布で行う、のいずれかで対処する。旧形式の run は遺伝子長が合わず測れないので、当時のコードで測る。
-3. 新機能や数値実験のたびに docs/report/ に HTML 報告を書く。`docs/report/template.html` を複製し、ファイル名は `YYYY-MM-DD_topic.html` とする。見出しは「目的・追加機能・実験設定・資源と時間・主要な結果・分析・todo との照合」で、目次と完全に一致させる。項目ごとの分量は回の重点に合わせて変えてよい。
-4. 報告 HTML に軌跡データを埋め込み、Canvas で個体の動きを再生する。再生・一時停止ボタンと水平シークバーを図の下に置く。サーバーや動画コーデックは不要。
-5. src の実装 review を定期的に行い docs/reviews/ に置く。ファイル名は `standard_YYYY-MM-DD.html`。書式は docs/reviews/template.html を複製する。対応が完了した review は docs/reviews/archive/ へ移動し、script のパスを ../../open/assets/html-state.js に直す。
-6. 人間が操作する HTML は docs/open/assets/html-state.js で状態を保存する (祖先に data-persist、末尾に script)。
-7. GA の計算は世代ループ内で CPU 同期を入れない。同期は run の最後の 1 回だけ。
-8. 仕様が複雑になったら、本ディレクトリを内容別のサブディレクトリに分割する。AGENTS.md には参照リンクだけを置く。
-9. 参照の書き方 (Ctrl+クリックで開けるようにする):
+3. run が正常終了したら、原則として `uv run python -m bodyopt stats-html --run resources/runs/<name>` を実行し、`stats.html` を残す。異常終了や検証用の極小 run では省略してよい。
+4. 新機能や数値実験のたびに docs/report/ に HTML 報告を書く。`docs/report/template.html` を複製し、ファイル名は `YYYY-MM-DD_topic.html` とする。見出しは「目的・追加機能・実験設定・資源と時間・主要な結果・分析・todo との照合」で、目次と完全に一致させる。項目ごとの分量は回の重点に合わせて変えてよい。
+5. 報告 HTML に軌跡データを埋め込み、Canvas で個体の動きを再生する。再生・一時停止ボタンと水平シークバーを図の下に置く。サーバーや動画コーデックは不要。
+6. src の実装 review を定期的に行い docs/reviews/ に置く。ファイル名は `standard_YYYY-MM-DD.html`。書式は docs/reviews/template.html を複製する。対応が完了した review は docs/reviews/archive/ へ移動し、script のパスを ../../open/assets/html-state.js に直す。
+7. 人間が操作する HTML は docs/open/assets/html-state.js で状態を保存する (祖先に data-persist、末尾に script)。
+8. GA の計算は世代ループ内で CPU 同期を入れない。同期は run の最後の 1 回だけ。
+9. 仕様が複雑になったら、本ディレクトリを内容別のサブディレクトリに分割する。AGENTS.md には参照リンクだけを置く。
+10. 参照の書き方 (Ctrl+クリックで開けるようにする):
    - md では `[@docs/agents/sim/physics.md](../sim/physics.md)` の形にする (表示は @docs 表記のまま)。
    - html では `<a href="../agents/sim/physics.md">@docs/agents/sim/physics.md</a>` の形にする。VS Code での遷移は拡張が処理するため、`target` 属性は不要。
    - コードブロック・インラインコード・文字列リテラルの中の @docs はリンク化しない。
-10. VS Code で preview のリンクをエディタタブで開く:
+11. VS Code で preview のリンクをエディタタブで開く:
    - この環境では、既定の「Preview First」(`local.preview-first`) が HTML と Markdown の相対リンクを VS Code のタブで開く。Ctrl+クリック時も、別のエディタグループを含め、開いているタブがあればそのタブへ移動する。拡張を更新したときは VS Code で Reload Window を実行する。
    - 手動で再読み込みするには、プレビューのエディタ右上のリロードアイコンを押す。ファイル保存時は自動で再描画される。
    - `bodyopt doclinks` はこの PC の VS Code ユーザー拡張で、リポジトリには含めない。Preview First を使わない場合は、HTML の右クリックメニューから「bodyopt: HTML プレビューを開く」を選ぶ。VS Code 標準の Markdown プレビューには `markdown.preview.openMarkdownLinks: inEditor` を使う。
