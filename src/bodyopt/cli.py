@@ -193,8 +193,7 @@ def replay_batch(
     labels を省くと trajectory_gen<g>_rank<r>.json になる。
     """
     genes, scores, summary_only = _replay_source(run_dir)
-    spec, _sim_p, batch_rollout, _episode = _replay_context(run_dir, seconds)
-    out_episode = float(_sim_p.episode_seconds)
+    spec, _sim_p, batch_rollout, episode = _replay_context(run_dir, seconds)
     n_gens, n_ranks = scores.shape
     # 旧形式 (2 成分/筋肉) の遺伝子は現在の物理モデルで解釈できない。JAX の前に弾く。
     gene_error: str | None = None
@@ -237,7 +236,9 @@ def replay_batch(
             traj = RolloutResult(*jax.tree.map(lambda x: x[k], rolled))
             com = com_trajectory(traj.pos, spec)
             label = labels[i] if labels else f"gen{generation}_rank{rank}"
-            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label, out_episode)
+            # episode は「run の評価区間」を記録する。replay を延長しても変えない
+            # (viewer はこの時刻にエピソード終端のゴーストを出す)。
+            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label, episode)
             outcomes[i] = ReplayOutcome(
                 generation, rank, path=out, score=picked_scores[k],
                 distance=float(com[-1, 0] - com[0, 0]),

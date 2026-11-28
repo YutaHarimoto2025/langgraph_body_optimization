@@ -14,7 +14,7 @@
 - resources/runs/<name>/ に実行単位で保存し、上書き・自動削除はしない。
 - replay は meta.json の creature から身体を復元する (実行時の --n-cols に依存しない)。旧形式 meta にもフォールバックする。
 - replay の軌跡は定性再生用。接触系はカオス的で、同じ遺伝子でも評価の文脈が変わると距離が数十 % 変わるため、記録スコアの再現は保証しない (詳細: [@docs/agents/sim/physics.md](sim/physics.md) の「決定性と再現性の限界」)。
-- replay は `--episode` (viewer の「秒」) で保存時より長い区間を計算できる。trajectory JSON には実際の episode 長を記録する。
+- replay は `--episode` (viewer の「秒」) で保存時より長い区間を計算できる。trajectory JSON の `episode` は run の評価区間 (保存時の値) を記録し、延長した長さは `times` の終端で表す。viewer は `episode` の時刻にエピソード終端のゴーストを表示する。
 - replay は population.npz があれば任意の --rank を再生できる。summary 記録には population.npz が無いため、stats.json の各世代の最良遺伝子を使い --rank 0 のみ再生する (それ以外はエラー)。
 
 ## stats.json と stats.html
