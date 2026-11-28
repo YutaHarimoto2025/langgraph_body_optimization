@@ -193,7 +193,8 @@ def replay_batch(
     labels を省くと trajectory_gen<g>_rank<r>.json になる。
     """
     genes, scores, summary_only = _replay_source(run_dir)
-    spec, _sim_p, batch_rollout, episode = _replay_context(run_dir, seconds)
+    spec, _sim_p, batch_rollout, _episode = _replay_context(run_dir, seconds)
+    out_episode = float(_sim_p.episode_seconds)
     n_gens, n_ranks = scores.shape
     # 旧形式 (2 成分/筋肉) の遺伝子は現在の物理モデルで解釈できない。JAX の前に弾く。
     gene_error: str | None = None
@@ -236,7 +237,7 @@ def replay_batch(
             traj = RolloutResult(*jax.tree.map(lambda x: x[k], rolled))
             com = com_trajectory(traj.pos, spec)
             label = labels[i] if labels else f"gen{generation}_rank{rank}"
-            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label, episode)
+            out = save_trajectory(dest, traj, np.asarray(picked_genes[k]), label, out_episode)
             outcomes[i] = ReplayOutcome(
                 generation, rank, path=out, score=picked_scores[k],
                 distance=float(com[-1, 0] - com[0, 0]),
@@ -250,12 +251,15 @@ def replay_individual(
     rank: int,
     out_dir: Path | None = None,
     label: str | None = None,
+    seconds: float | None = None,
 ) -> tuple[Path, float, float]:
     """1 個体を再ロールアウトして軌跡 JSON を書き出す (CLI 用)。
 
     rank は 0 始まり (0 = 最良)。戻り値は (出力パス, 記録スコア, 重心の移動距離)。
     """
-    outcome = replay_batch(run_dir, [(generation, rank)], out_dir, [label] if label else None)[0]
+    outcome = replay_batch(
+        run_dir, [(generation, rank)], out_dir, [label] if label else None, seconds
+    )[0]
     if outcome.path is None:
         raise ValueError(outcome.error)
     return outcome.path, outcome.score, outcome.distance
@@ -266,7 +270,7 @@ def cmd_replay_worker(args: argparse.Namespace) -> None:
     targets = [tuple(t) for t in json.loads(args.targets)]
     labels = json.loads(args.labels) if args.labels else None
     outcomes = replay_batch(
-        Path(args.run), targets, Path(args.out) if args.out else None, labels
+        Path(args.run), targets, Path(args.out) if args.out else None, labels, args.seconds
     )
     items = [
         {
@@ -286,7 +290,7 @@ def cmd_replay(args: argparse.Namespace) -> None:
     try:
         out, score, distance = replay_individual(
             Path(args.run), args.generation, args.rank,
-            Path(args.out) if args.out else None,
+            Path(args.out) if args.out else None, seconds=args.episode,
         )
     except ValueError as e:
         raise SystemExit(f"[replay] {e}") from e
@@ -486,6 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
     wk.add_argument("--targets", required=True, help='[[gen, rank], ...] の JSON')
     wk.add_argument("--labels", default=None, help="ラベルの JSON 配列")
     wk.add_argument("--out", default=None)
+    wk.add_argument("--seconds", type=float, default=None, help="エピソード長の上書き [s]")
     wk.set_defaults(func=cmd_replay_worker)
 
     vc = sub.add_parser("_viewer-child", help=argparse.SUPPRESS)

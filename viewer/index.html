@@ -614,15 +614,19 @@
       const freq = hasFreq ? g.slice(nE, 2 * nE) : null;
       const phase = hasFreq ? g.slice(2 * nE, 3 * nE) : g.slice(nE, 2 * nE);
       const TAU = 2 * Math.PI;
+      const hasStiff = g.length >= 4 * nE;
+      const stiff = hasStiff ? g.slice(3 * nE, 4 * nE) : null;
       const panels = hasFreq
         ? [
             ["振幅 [N]", "0–100", amp, 100, [0, 50, 100]],
             ["周波数 [Hz]", "0.1–1", freq, 1, [0.1, 0.5, 1]],
             ["位相 [rad]", "0–2π", phase, TAU, [0, Math.PI, TAU]],
+            ...(hasStiff ? [["剛性 g (k=500·10^g)", "0–1", stiff, 1, [0, 0.5, 1]]] : []),
           ]
         : [
             ["振幅 [N]", "0–100", amp, 100, [0, 50, 100]],
             ["位相 [rad]", "0–2π", phase, TAU, [0, Math.PI, TAU]],
+            ...(hasStiff ? [["剛性 g (k=500·10^g)", "0–1", stiff, 1, [0, 0.5, 1]]] : []),
           ];
       const plotW = W - LEFT - RIGHT;
       const panelH = (H - TOP - BOTTOM) / panels.length;

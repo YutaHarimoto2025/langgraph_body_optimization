@@ -70,6 +70,8 @@ run 名は  resources/runs/<name>/  のディレクトリ名にしかない。�
 1. 実装後は「静的テスト → 短い GA run による動的テスト → 合意仕様の docs 正本化」を徹底する。first goal の段階では長い GA を回さない (数分で終わる動作確認まで)。
 2. 新しい実験設定 (params・身体・物理・評価式) で run を回したら、結果を採用する前に最良個体で `chaos` を測る。同じ条件の反復シミュレーションで距離の幅が max(5 mm, 平均の 1%) を超えたら、カオスが結果に効いているとみなす。その場合は report に幅と `dt` を明記し、`dt` を細かくする・減衰を見直す・設定間の比較を平均と分布で行う、のいずれかで対処する。旧形式の run は遺伝子長が合わず測れないので、当時のコードで測る。
 3. run が正常終了したら、原則として `uv run python -m bodyopt stats-html --run resources/runs/<name>` を実行し、`stats.html` を残す。異常終了や検証用の極小 run では省略してよい。
+   - 遺伝子に新しい変数を追加したら、同じ変更で次を更新する: 物理側の解釈 (physics.py/models.py)、GA の境界 (ga.py)、記録 (io.py の gene_sigma)、stats.html の GENE_TYPES、viewer の遺伝子グラフ。run の前に viewer で新しいブロックが表示されることを確認する。
+   - replay の `--episode` (viewer の「秒」) は保存時の episode を上書きでき、長く指定すればエピソード終端より先まで再生できる。trajectory JSON の `episode` は実際に計算した長さを記録する。
 4. 新機能や数値実験のたびに docs/report/ に HTML 報告を書く。`docs/report/template.html` を複製し、ファイル名は `YYYY-MM-DD_topic.html` とする。見出しは「目的・追加機能・実験設定・資源と時間・主要な結果・分析・todo との照合」で、目次と完全に一致させる。項目ごとの分量は回の重点に合わせて変えてよい。
 5. 報告 HTML に軌跡データを埋め込み、Canvas で個体の動きを再生する。再生・一時停止ボタンと水平シークバーを図の下に置く。サーバーや動画コーデックは不要。
 6. src の実装 review を定期的に行い docs/reviews/ に置く。ファイル名は `standard_YYYY-MM-DD.html`。書式は docs/reviews/template.html を複製する。対応が完了した review は docs/reviews/archive/ へ移動し、script のパスを ../../open/assets/html-state.js に直す。

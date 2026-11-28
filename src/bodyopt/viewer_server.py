@@ -120,6 +120,8 @@ class _Handler(SimpleHTTPRequestHandler):
             "--labels", json.dumps(labels),
             "--out", str(TEMP_DIR),
         ]
+        if seconds is not None:
+            cmd += ["--seconds", str(seconds)]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip().splitlines()[-5:]

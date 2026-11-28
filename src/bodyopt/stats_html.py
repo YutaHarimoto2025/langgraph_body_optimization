@@ -31,6 +31,7 @@ GENE_TYPES = (
     ("amplitude", "振幅", "N"),
     ("frequency", "周波数", "Hz"),
     ("phase", "位相", "rad"),
+    ("stiffness", "剛性 g", "0–1"),
 )
 GENE_GROUPS = (
     ("top1", "上位1%", ACCENT),
